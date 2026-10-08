@@ -3,6 +3,7 @@ import api from '../core/api';
 import authApi from '@/services/core/apiAuth';
 import type {
   AutomationRule,
+  AutomationRuleRun,
   AutomationCondition,
   AutomationAction,
   AutomationFlowData,
@@ -24,10 +25,10 @@ class AutomationService {
     }
   }
 
-  async getAutomation(id: string): Promise<AutomationResponse> {
+  async getAutomation(id: string): Promise<AutomationRule> {
     try {
       const response = await api.get(`/automation_rules/${id}`);
-      return extractData<AutomationResponse>(response);
+      return extractData<AutomationRule>(response);
     } catch (error: any) {
       console.error('Erro ao buscar automação:', error);
       throw new Error(error?.response?.data?.message || 'Erro ao buscar automação');
@@ -141,6 +142,26 @@ class AutomationService {
     }
   }
 
+  async getAutomationRuns(
+    id: string,
+    params?: { page?: number; per_page?: number; status?: string },
+  ): Promise<{
+    data: AutomationRuleRun[];
+    meta?: { pagination?: { page: number; per_page: number; total_count: number; total_pages: number } };
+  }> {
+    try {
+      const response = await api.get(`/automation_rules/${id}/runs`, { params });
+      const body = response.data ?? {};
+      return {
+        data: (body.data ?? []) as AutomationRuleRun[],
+        meta: body.meta,
+      };
+    } catch (error: any) {
+      console.error('Erro ao buscar execuções da automação:', error);
+      throw new Error(error?.response?.data?.message || 'Erro ao buscar execuções da automação');
+    }
+  }
+
   // Métodos auxiliares para buscar dados necessários para o formulário
   async getFormData(): Promise<{
     inboxes: any[];
@@ -178,7 +199,7 @@ class AutomationService {
         teams: getResultData(teamsRes),
         labels: getResultData(labelsRes),
         campaigns: [],
-        customAttributes: [], // TODO: Implementar busca de custom attributes se necessário
+        customAttributes: [], // fetched in useAutomationFormData via customAttributesService
       };
     } catch (error: any) {
       console.error('Erro ao buscar dados do formulário:', error);
@@ -369,6 +390,7 @@ class AutomationService {
       'resolve-conversation-node',
       'change-priority-node',
       'change-status-node',
+      'assign-to-pipeline-node',
     ];
 
     return actionNodeTypes.includes(nodeType);
@@ -492,6 +514,12 @@ class AutomationService {
           return {
             action_name: 'change_status',
             action_params: [nodeData.status || null],
+          };
+
+        case 'assign-to-pipeline-node':
+          return {
+            action_name: 'assign_to_pipeline',
+            action_params: [nodeData.pipeline_id || null],
           };
 
         default:

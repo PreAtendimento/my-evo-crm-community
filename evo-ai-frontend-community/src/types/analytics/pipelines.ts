@@ -1,6 +1,44 @@
 import type { PaginatedResponse, StandardResponse, PaginationMeta } from '@/types/core';
 import type { Contact } from '@/types/contacts';
 
+export type StageAutomationTrigger =
+  | 'label_added'
+  | 'conversation_status_changed'
+  | 'custom_attribute_updated'
+  | 'inactivity';
+export type StageAutomationAction =
+  | 'move_to_stage'
+  | 'move_to_pipeline'
+  | 'assign_agent'
+  | 'apply_label'
+  | 'send_ai_message'
+  | 'send_direct_message'
+  | 'send_template'
+  | 'finalize';
+
+export type InactivityBase = 'no_customer_reply' | 'stage_stagnation';
+
+// trigger_value for the 'inactivity' trigger carries the timer config as an
+// object; all other triggers keep using a plain string.
+export interface InactivityTriggerValue {
+  minutes: number;
+  base: InactivityBase;
+}
+
+export interface StageAutomationRule {
+  // Stable id (uuid) for inactivity idempotency. Optional for back-compat with
+  // legacy rules saved before this field existed (backend falls back to a hash).
+  id?: string;
+  trigger: StageAutomationTrigger;
+  trigger_value: string | InactivityTriggerValue;
+  action: StageAutomationAction;
+  // For send_ai_message: action_value holds the agent_bot id. For other actions
+  // it holds the stage/agent/label id, template id, or raw text.
+  action_value: string;
+  // Optional suggested text passed to the AI for the send_ai_message action.
+  ai_message?: string;
+}
+
 export interface PipelinesResponse extends PaginatedResponse<Pipeline> {}
 
 export interface PipelineResponse extends StandardResponse<Pipeline> {}
@@ -68,12 +106,14 @@ export interface PipelineStage {
   stage_type?: string;
   automation_rules?: {
     description?: string;
+    rules?: StageAutomationRule[];
   };
   custom_fields?: Record<string, unknown> & {
     attributes?: string[]; // Array of attribute keys created at stage level
   };
   item_count?: number;
   conversations_count?: number;
+  total_value?: number; // Sum of services value of the stage's items (list payload)
   items?: PipelineItem[]; // Items already included in the stage
   created_at: string | number;
   updated_at: string | number;
@@ -142,6 +182,27 @@ export interface PipelinesListParams {
   q?: string;
   is_active?: boolean;
   pipeline_type?: string;
+  // Opt-in: the API hides deactivated pipelines unless this is set, so pickers
+  // elsewhere in the app keep listing active pipelines only.
+  include_inactive?: boolean;
+}
+
+// EVO-2200: `inspected` names the dependency kinds the backend actually checked, so the
+// UI can say the list is partial instead of implying automations and journeys were covered.
+export interface PipelineDependents {
+  inspected: string[];
+  count: number;
+  published_count: number;
+  // Names live behind crm_forms.read: the counts are always shared, the list may be empty
+  // for a caller allowed to archive a pipeline but not to enumerate forms.
+  names_redacted: boolean;
+  crm_forms: Array<{
+    id: string;
+    name: string;
+    title?: string | null;
+    published: boolean;
+    via: 'default' | 'routing_rule';
+  }>;
 }
 
 export interface CreatePipelineData {
@@ -234,6 +295,7 @@ export interface PipelineItem {
   };
   conversation?: {
     id: string;
+    uuid?: string;
     display_id: string;
     status: string;
     priority?: string | null;
@@ -255,6 +317,13 @@ export interface PipelineItem {
       name: string;
       avatar_url?: string;
     };
+    labels?: Array<{
+      id: number;
+      title: string;
+      color?: string;
+      description?: string;
+      show_on_sidebar?: boolean;
+    }>;
     last_message?: {
       content: string;
       message_type: string;

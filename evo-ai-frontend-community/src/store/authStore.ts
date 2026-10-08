@@ -3,6 +3,7 @@ import { UserResponse, UISettings, UserTour } from '@/types/auth';
 import { validateToken } from '@/services/auth/authService';
 import { tourService } from '@/services/tours/tourService';
 import { useAppDataStore } from './appDataStore';
+import { normalizeAvatarUrl } from '@/utils/avatarUrl';
 
 interface ImpersonationData {
   adminUser: UserResponse;
@@ -35,6 +36,7 @@ interface AuthState {
   validityCheck: () => Promise<void>;
   updateUISettings: (settings: Partial<UISettings>) => void;
   updateAvailability: (availability: 'online' | 'offline' | 'busy') => void;
+  getAccessToken: () => string | null;
   getAuthHeader: () => { Authorization: string } | undefined;
 
   // Tour actions
@@ -81,8 +83,20 @@ export const useAuthStore = create<AuthState>((set, get) => {
       }
     },
 
+    // localStorage wins over this store's copy: when the app is embedded, the host
+    // owns login and only writes the key, so the token read at module load outlives
+    // a re-login and signs requests the server already revoked. Impersonation is the
+    // one token held only in memory, so it wins while active.
+    // The tradeoff of a shared key: two tabs on one origin cannot hold two
+    // sessions, and a login in either now wins in both.
+    getAccessToken: () => {
+      const { impersonation, accessToken } = get();
+      if (impersonation) return accessToken;
+      return localStorage.getItem('access_token') || accessToken;
+    },
+
     getAuthHeader: () => {
-      const token = get().accessToken || localStorage.getItem('access_token');
+      const token = get().getAccessToken();
       if (token) {
         return { Authorization: `Bearer ${token}` };
       }
@@ -110,7 +124,10 @@ export const useAuthStore = create<AuthState>((set, get) => {
 
         const isLoggedIn = checkIsLoggedIn(userData);
         set({
-          currentUser: userData,
+          currentUser: {
+            ...userData,
+            avatar_url: normalizeAvatarUrl(userData.avatar_url) || userData.avatar_url,
+          },
           isLoggedIn: isLoggedIn,
           isFetching: false,
         });

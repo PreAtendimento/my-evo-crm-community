@@ -20,63 +20,18 @@ else
   puts "   ♻️ Role already exists: #{account_owner.name}"
 end
 
-# Get all permissions except Account Owner specific ones
+# Keys withheld from Account Owner (super_admin only). Every entry MUST exist
+# in ResourceActionsConfig — keys absent from the catalog are inert here (the
+# subtraction below can only remove keys the catalog produces) and just
+# mislead readers; ~50 such phantom leftovers from removed enterprise
+# resources (plans/features/audit_logs/...) were pruned.
 account_owner_exclusive = [
-  'accounts.suspend',
-  'accounts.activate',
-  'accounts.seed',
-  'accounts.reset_cache',
   'accounts.stats',
-  'dashboard.view_admin',
-  'dashboard.instance_status',
-  'dashboard.system_info',
-  'audit_logs.read',
-  'audit_logs.export',
-  'audit_logs.purge',
-  'audit_logs.filter',
-  'audit_logs.view_details',
-  'plans.read',
-  'plans.create',
-  'plans.update',
-  'plans.delete',
-  'plans.assign',
-  'plans.manage_features',
-  'plans.activate_deactivate',
-  'features.create',
-  'features.update',
-  'features.delete',
-  'features.stats',
-  'features.seed',
-  'features.types',
-  'roles.create',
-  'roles.update',
-  'roles.delete',
-  'roles.stats',
-  'roles.seed',
-  'roles.add_permission',
-  'roles.remove_permission',
-  'roles.bulk_update_permissions',
-  'account_features.read',
-  'account_features.assign',
-  'account_features.remove',
-  'account_features.configure',
-  'account_plans.read',
-  'account_plans.assign',
-  'account_plans.change',
-  'plan_features.read',
-  'plan_features.assign',
-  'plan_features.remove',
-  'plan_features.configure',
-  'feature_types.read',
-  'feature_types.create',
-  'feature_types.update',
-  'feature_types.delete',
-  'resource_actions.sync',
-  'permissions.create',
-  'permissions.update',
-  'permissions.delete',
-  'permissions.assign',
-  'permissions.bulk_operations'
+  # Installation-level configuration (SMTP, Storage, Social Login, OpenAI,
+  # Channels, Inbound Email, Frontend Runtime). Reserved for the
+  # super_admin role — the bootstrap user gets it and it is the only role
+  # that may render the "Admin Settings" panel and call /api/v1/installation_configs/**.
+  'installation_configs.manage'
 ]
 
 account_owner_permissions = ResourceActionsConfig.all_permission_keys - account_owner_exclusive
@@ -116,35 +71,66 @@ else
 end
 
 agent_permissions = [
-  'conversations.read', 'conversations.create', 'conversations.update', 'conversations.delete',
+  # Operational reads previously inherited via BASIC_READ_PERMISSIONS. Now that
+  # the split removed users.read/inboxes.read from BASIC, the agent role grants
+  # them explicitly. The agent is SECURE-BY-DEFAULT for inbox visibility: it does
+  # NOT get conversations.read_all, so it sees only the inboxes it is a member of
+  # (User#assigned_inboxes) — an agent with no membership sees nothing until it is
+  # assigned. account_owner/super_admin still see everything (read_all grant +
+  # administrator?). NOTE: users.manage is intentionally NOT granted — agents do
+  # not see the administrative panel.
+  'users.read',
+  'conversations.read', 'conversations.create', 'conversations.update',
   'conversations.meta', 'conversations.search', 'conversations.filter', 'conversations.available_for_pipeline',
   'conversations.mute', 'conversations.unmute', 'conversations.transcript', 'conversations.toggle_status',
   'conversations.toggle_priority', 'conversations.toggle_typing_status', 'conversations.update_last_seen',
   'conversations.unread', 'conversations.custom_attributes', 'conversations.attachments', 'conversations.inbox_assistant',
-  'contacts.read', 'contacts.create', 'contacts.update', 'contacts.delete',
+  'conversations.import',
+  'contacts.read', 'contacts.create', 'contacts.update',
   'contacts.active', 'contacts.search', 'contacts.filter', 'contacts.import', 'contacts.export',
   'contacts.contactable_inboxes', 'contacts.destroy_custom_attributes', 'contacts.avatar',
-  'oauth_pipelines.read', 'oauth_pipelines.create', 'oauth_pipelines.update', 'oauth_pipelines.delete',
-  'oauth_pipeline_stages.read', 'oauth_pipeline_stages.create', 'oauth_pipeline_stages.update', 'oauth_pipeline_stages.delete',
-  'pipeline_stages.read', 'pipeline_stages.create', 'pipeline_stages.update', 'pipeline_stages.delete',
-  'agents.read', 'agents.create', 'agents.update', 'agents.delete',
-  'oauth_agents.read', 'oauth_agents.create', 'oauth_agents.update', 'oauth_agents.delete',
-  'agent_bots.read', 'agent_bots.create', 'agent_bots.update', 'agent_bots.delete', 'agent_bots.avatar',
-  'agent_apikeys.read', 'agent_apikeys.create', 'agent_apikeys.update', 'agent_apikeys.delete',
-  'agent_folders.read', 'agent_folders.create', 'agent_folders.update', 'agent_folders.delete',
-  'agent_shared_folders.read', 'agent_shared_folders.create', 'agent_shared_folders.update', 'agent_shared_folders.delete',
-  'ai_chat_sessions.read', 'ai_chat_sessions.create', 'ai_chat_sessions.update', 'ai_chat_sessions.delete',
-  'accounts.read', 'accounts.update',
+  # CRM-166: the agent writes attribute VALUES but had no read on the definitions,
+  # so GET /custom_attribute_definitions 403'd and read-only screens rendered "no
+  # attributes". Read only: create/update/delete stay administrative, and the CRM Settings
+  # screen is gated on those, not on this key.
+  'custom_attribute_definitions.read',
+  'pipelines.read',
+  # Card writes gate on pipeline_items.update (its own key), NOT pipelines.update —
+  # the agent moves/creates cards without the manager's power to reshape/archive the
+  # funnel. See PipelineItemsController + PipelinePolicy#update_items? in the CRM (CRM-178).
+  'pipeline_items.update',
+  # pipeline_stages.delete is NOT granted: deleting a funnel stage is a destructive
+  # restructuring of the shared pipeline, not attendance. Create/update stay for the
+  # kanban experience.
+  'pipeline_stages.read', 'pipeline_stages.create', 'pipeline_stages.update',
+  # accounts.update is administrative (Settings > Account) and deliberately
+  # NOT granted; PATCH /api/v1/account enforces it.
+  'accounts.read',
   'profiles.read', 'profiles.update', 'profiles.update_avatar', 'profiles.update_password', 'profiles.manage_notifications',
-  'teams.read', 'teams.create', 'teams.update', 'teams.delete',
-  'team_members.read', 'team_members.create', 'team_members.update', 'team_members.delete',
-  'labels.read', 'labels.create', 'labels.update', 'labels.delete',
-  'canned_responses.read', 'canned_responses.create', 'canned_responses.update', 'canned_responses.delete',
-  'macros.read', 'macros.create', 'macros.update', 'macros.delete', 'macros.execute',
-  'inboxes.read',
-  'channels.read',
-  'integrations.read',
-  'working_hours.read', 'working_hours.create', 'working_hours.update', 'working_hours.delete'
+  # Operational resources used inside conversations. Product decision (CRM-70,
+  # 2026-08-18): the agent MANAGES its own labels and canned responses, so those
+  # keep read/create/update. Macros and message templates are use-vs-manage:
+  # the agent keeps `read` (send a template) and `macros.execute` (run one) for
+  # the chat, while `create`/`update` and the Settings screen belong to
+  # `<resource>.manage`, granted to admin roles only. Deletes of every shared
+  # asset stay out (CRM-190). Personal macros an agent already owns keep working.
+  'labels.read', 'labels.create', 'labels.update',
+  'canned_responses.read', 'canned_responses.create', 'canned_responses.update',
+  'message_templates.read',
+  'macros.read', 'macros.execute',
+  # teams powers the in-chat "Assign team" picker (GET /teams), so the read is
+  # operational and kept here (also in BASIC_READ_PERMISSIONS). Create/update/delete
+  # are NOT granted: creating, renaming and deleting teams — and managing members via
+  # team_members, gated by teams.update — is a manager/settings action, not attendance.
+  # The Settings screen itself is gated by teams.manage (CRM-70), which the agent
+  # does not hold: read alone cannot hide it, since teams.read is basic for everyone.
+  'teams.read',
+  'inboxes.read'
+  # EVO-1938: administrative Settings resources (AI Agents/Bots/API keys/folders/
+  # sessions, Integrations, Channels, Working Hours, Segments, Journeys, Campaigns)
+  # are intentionally NOT granted to the default agent. The frontend routes/menu and
+  # the CRM controllers gate by these keys, so omitting them hides the screens and
+  # 403s the endpoints.
 ]
 
 agent.role_permissions_actions.destroy_all
@@ -152,5 +138,33 @@ agent_permissions.select { |key| ResourceActionsConfig.valid_permission?(key) }.
   agent.role_permissions_actions.create!(permission_key: permission_key)
 end
 puts "   📋 Assigned #{agent_permissions.select { |key| ResourceActionsConfig.valid_permission?(key) }.size} permissions to #{agent.name}"
+
+# Super Admin (installation-level operator)
+# In the Community edition there is exactly one user with this role: the
+# user created via the setup wizard (bootstrap). They keep everything an
+# Account Owner has, plus the installation-level configuration permissions
+# that no other role should ever hold (SMTP, Storage, Social Login, OpenAI,
+# Frontend Runtime, etc.).
+super_admin = Role.find_or_initialize_by(key: 'super_admin')
+if super_admin.new_record?
+  super_admin.name = 'Super Admin'
+  super_admin.description = 'Installation owner — full account access plus installation-level configuration'
+  super_admin.system = true
+  super_admin.type = 'user'
+  super_admin.save!
+  puts "   ✅ Created role: #{super_admin.name}"
+else
+  puts "   ♻️ Role already exists: #{super_admin.name}"
+end
+
+super_admin_permissions = ResourceActionsConfig.all_permission_keys.select do |key|
+  ResourceActionsConfig.valid_permission?(key)
+end
+
+super_admin.role_permissions_actions.destroy_all
+super_admin_permissions.each do |permission_key|
+  super_admin.role_permissions_actions.create!(permission_key: permission_key)
+end
+puts "   📋 Assigned #{super_admin_permissions.size} permissions to #{super_admin.name}"
 
 puts "✅ RBAC seeds created successfully!"

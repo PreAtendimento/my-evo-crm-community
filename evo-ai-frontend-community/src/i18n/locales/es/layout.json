@@ -24,12 +24,16 @@
       "noAssignee": "NA",
       "noContent": "Sin contenido"
     },
+    "push": {
+      "fallbackTitle": "Nueva notificación",
+      "bodyWithAssignee": "Asignada a {{name}}"
+    },
     "panel": {
-      "title": "Notificaciones no leídas",
+      "title": "Notificaciones",
       "markAllAsRead": "Marcar todas como leídas",
       "loading": "Cargando notificaciones...",
       "emptyTitle": "¡Todo al día!",
-      "emptyDescription": "No tiene notificaciones no leídas en este momento.",
+      "emptyDescription": "No tiene notificaciones en este momento.",
       "pagination": {
         "separator": " - "
       },
@@ -46,7 +50,8 @@
         "conversation_opened": "Conversación Abierta",
         "conversation_closed": "Conversación Cerrada",
         "message_updated": "Mensaje Actualizado",
-        "message_deleted": "Mensaje Eliminado"
+        "message_deleted": "Mensaje Eliminado",
+        "channel_message": "Nuevo mensaje vía {{channel}}"
       }
     }
   },
@@ -80,10 +85,14 @@
       "conversations": "Conversaciones",
       "contacts": "Contactos",
       "pipelines": "Pipelines",
+      "products": "Productos",
       "agents": "Agentes",
       "channels": "Canales",
+      "automation": "Automatizaciones",
       "tutorials": "Tutoriales",
-      "settings": "Configuraciones"
+      "settings": "Configuraciones",
+      "campaigns": "Campañas",
+      "journeys": "Jornadas"
     },
     "contacts": {
       "list": "Contactos",
@@ -101,10 +110,18 @@
       "labels": "Etiquetas",
       "customAttributes": "Atributos Personalizados",
       "cannedResponses": "Respuestas Rápidas",
+      "aiCredentials": "Credenciales de IA",
+      "integrationCredentials": "Credenciales de integración",
+      "messageTemplates": "Plantillas de Mensaje",
       "macros": "Macros",
+      "templates": "Plantillas",
       "integrations": "Integraciones",
       "accessTokens": "Tokens de Acceso",
-      "admin": "Configuración Admin"
+      "roles": "Perfiles y Permisos",
+      "admin": "Configuración Admin",
+      "segments": "Segmentos",
+      "crmForms": "Formularios de captación",
+      "chatPages": "Páginas de chat"
     }
   }
 }

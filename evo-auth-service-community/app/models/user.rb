@@ -57,9 +57,73 @@ class User < ApplicationRecord
   require "argon2"
   PASSWORD_SPECIAL_CHAR_REGEX = /[^A-Za-z0-9]/.freeze
 
+  # Materialized per (user, tenant) by the attendance-permission sync, which
+  # lives outside this repo.
+  DERIVED_ROLE_KEY_PREFIX = 'evo_derived_'
+
+  # dashboard.read has no catalog resource ON PURPOSE (product decision, D2 of
+  # the RBAC audit): the dashboard is the landing page of every authenticated
+  # user, so the key lives only here and the frontend gate that reads it
+  # always passes. Do not "clean it up" — removing it hides the home screen
+  # from everyone.
   BASIC_READ_PERMISSIONS = %w[
-    accounts.read labels.read dashboard.read inboxes.read teams.read users.read
+    accounts.read labels.read dashboard.read teams.read
   ].freeze
+
+  # Operational implications: holding a granular permission implies a minimal
+  # operational read on dependent resources. A role with conversations.read
+  # needs to load attendants (users.read) and inbox metadata (inboxes.read) to
+  # operate the Conversations screen, even though those reads are no longer
+  # granted to everyone via BASIC_READ_PERMISSIONS. The implied users.read is
+  # OPERATIONAL only — the administrative gate (Settings > Agents) moved to
+  # users.manage, so this does not re-open the admin panel.
+  #
+  # These also LOCK the implied key in the role editor: the user holds it
+  # whatever the role says, so a checkbox for it would lie (see
+  # ResourceActionsConfig.permission_lock_info). Only implications with that
+  # property belong here — see GENERATED_WRITE_IMPLICATIONS.
+  LOCKING_IMPLICATIONS = {
+    'conversations.read' => %w[users.read inboxes.read]
+  }.freeze
+
+  # EVO-2127: holding any granular write of a resource implies its coarse
+  # `<resource>.write`. The role editor now saves the coarse write groups; this
+  # lets a non-super_admin who can already grant the granular writes also grant
+  # the coarse write, so bulk_update_permissions does not 403 (it requires the
+  # caller to hold every newly-granted key). Runtime-only (no save/backfill) and
+  # forward-only: write is a leaf, create never implies delete. Derived from the
+  # catalog so front (permissionDomains) and back cannot drift on which actions
+  # are writes. Referencing ResourceActionsConfig here forces its autoload; there
+  # is no cycle — the config reads User constants only at call time.
+  #
+  # Deliberately NOT in LOCKING_IMPLICATIONS: `<resource>.write` is a REAL,
+  # editable grant — the coarse key is what the Write checkbox decides, and it is
+  # the key that outlives the granular ones when enforcement migrates to it.
+  # Locking it would make the editor able to add it but never remove it: the
+  # front drops locked keys from the group the checkbox controls, so unchecking
+  # "Write" would leave `<resource>.write` behind in the role forever.
+  GENERATED_WRITE_IMPLICATIONS = ResourceActionsConfig.write_actions_by_resource
+    .each_with_object({}) do |(resource, actions), acc|
+      actions.each { |action| acc["#{resource}.#{action}"] = ["#{resource}.write"] }
+    end.freeze
+
+  # Every "can write this agent" key implies ai_agent_processor.execute — a system
+  # key, runtime-only, never persisted. Granular writes are listed explicitly:
+  # implications don't chain (has_permission? expands only a role's explicit keys).
+  AGENT_EXECUTION_IMPLICATIONS = (
+    ResourceActionsConfig.write_actions_by_resource.fetch('ai_agents', []) + ['write']
+  ).each_with_object({}) do |action, acc|
+    acc["ai_agents.#{action}"] = ['ai_agent_processor.execute']
+  end.freeze
+
+  # Runtime implications (has_permission? / all_permissions). Superset of
+  # LOCKING_IMPLICATIONS. Block-form merge concatenates on key collision; a plain
+  # .merge would drop the coarse write from GENERATED_WRITE_IMPLICATIONS and
+  # silently undo EVO-2127.
+  OPERATIONAL_IMPLICATIONS = LOCKING_IMPLICATIONS
+                             .merge(GENERATED_WRITE_IMPLICATIONS)
+                             .merge(AGENT_EXECUTION_IMPLICATIONS) { |_key, existing, added| (existing + added).uniq }
+                             .freeze
 
   devise :database_authenticatable,
          :registerable,
@@ -68,7 +132,7 @@ class User < ApplicationRecord
          :trackable,
          :validatable,
          :confirmable,
-         :omniauthable, omniauth_providers: [:google_oauth2]
+         :omniauthable, omniauth_providers: [:google_oauth2, :github]
 
   enum availability: { online: 0, offline: 1, busy: 2 }
 
@@ -103,9 +167,14 @@ class User < ApplicationRecord
     return false unless permission_key.present?
     return true if BASIC_READ_PERMISSIONS.include?(permission_key)
 
-    user_roles.joins(role: :role_permissions_actions)
-              .where(role_permissions_actions: { permission_key: permission_key })
-              .exists?
+    explicit = role_permission_keys
+    return true if explicit.include?(permission_key)
+
+    # Operational implication: a role with conversations.read implies
+    # users.read / inboxes.read (needed to operate the Conversations screen).
+    OPERATIONAL_IMPLICATIONS.any? do |source_key, implied_keys|
+      implied_keys.include?(permission_key) && explicit.include?(source_key)
+    end
   end
   
   # Verifica se o usuário tem uma role específica
@@ -131,9 +200,17 @@ class User < ApplicationRecord
   def all_permissions
     return BASIC_READ_PERMISSIONS.dup unless persisted?
 
-    role_perms = user_roles.joins(role: :role_permissions_actions)
-                           .pluck('role_permissions_actions.permission_key')
-    (BASIC_READ_PERMISSIONS + role_perms).uniq.sort
+    role_perms = role_permission_keys
+    combined = (BASIC_READ_PERMISSIONS + role_perms)
+
+    # Inject operational implications so the frontend (PermissionsContext reads
+    # all_permissions) agrees with has_permission? (API enforcement): a role
+    # with conversations.read also has the implied users.read / inboxes.read.
+    OPERATIONAL_IMPLICATIONS.each do |source_key, implied_keys|
+      combined += implied_keys if combined.include?(source_key)
+    end
+
+    combined.uniq.sort
   end
   
   # Lista permissões agrupadas por recurso
@@ -151,19 +228,11 @@ class User < ApplicationRecord
   def role_data
     return nil unless persisted?
     return @role_data if defined?(@role_data)
-    
-    # Use eager loaded association if available, otherwise query
-    user_role = if association(:user_roles).loaded?
-      # When eager loaded, use the loaded collection (no query)
-      user_roles.first
-    else
-      # Fallback to query when not eager loaded
-      user_roles.joins(:role).first
-    end
-    
+
+    user_role = primary_user_role
+
     return @role_data = nil unless user_role
-    
-    # Access role - will use eager loaded association if available
+
     role = user_role.role
     @role_data = role ? {
       id: role.id,
@@ -247,6 +316,43 @@ class User < ApplicationRecord
 
   private
 
+  # Among real roles the newest grant wins: a role update replaces the previous
+  # one, so an older row that outlived it is the role the user no longer holds.
+  def primary_user_role
+    if association(:user_roles).loaded?
+      user_roles.max_by do |user_role|
+        key = user_role.role&.key.to_s
+        [derived_role_key?(key) ? 0 : 1, user_role.created_at, key]
+      end
+    else
+      user_roles.joins(:role).order(derived_roles_last).order(created_at: :desc).order('roles.key DESC').first
+    end
+  end
+
+  # starts_with is the SQL twin of String#start_with?, so both branches agree on
+  # what counts as derived. LIKE would not: '_' is a single-character wildcard.
+  def derived_roles_last
+    Arel.sql("starts_with(roles.key, #{self.class.connection.quote(DERIVED_ROLE_KEY_PREFIX)})")
+  end
+
+  def derived_role_key?(key)
+    key.start_with?(DERIVED_ROLE_KEY_PREFIX)
+  end
+
+  # Permission keys granted explicitly via the user's roles (no BASIC, no
+  # operational implications). Single source of truth for has_permission? and
+  # all_permissions — keeps the implication logic from recursing into
+  # has_permission?.
+  def role_permission_keys
+    return [] unless persisted?
+
+    # Memoized per instance (User is per-request): has_permission? is called on
+    # every authorize_resource!, and roles like account_owner/super_admin carry
+    # hundreds of keys — without this we'd re-pluck the full set on each check.
+    @role_permission_keys ||= user_roles.joins(role: :role_permissions_actions)
+                                        .pluck('role_permissions_actions.permission_key')
+  end
+
   def set_password_and_uid
     self.uid = email
   end
@@ -264,20 +370,9 @@ class User < ApplicationRecord
   def password_complexity
     return if password.blank?
 
-    unless password.match?(/[a-z]/)
-      errors.add(:password, 'must include at least one lowercase letter')
-    end
-
-    unless password.match?(/[A-Z]/)
-      errors.add(:password, 'must include at least one uppercase letter')
-    end
-
-    unless password.match?(/\d/)
-      errors.add(:password, 'must include at least one number')
-    end
-
-    unless password.match?(PASSWORD_SPECIAL_CHAR_REGEX)
-      errors.add(:password, 'must include at least one special character')
-    end
+    errors.add(:password, :missing_lowercase, message: 'must include at least one lowercase letter') unless password.match?(/[a-z]/)
+    errors.add(:password, :missing_uppercase, message: 'must include at least one uppercase letter') unless password.match?(/[A-Z]/)
+    errors.add(:password, :missing_number, message: 'must include at least one number') unless password.match?(/\d/)
+    errors.add(:password, :missing_special_char, message: 'must include at least one special character') unless password.match?(PASSWORD_SPECIAL_CHAR_REGEX)
   end
 end

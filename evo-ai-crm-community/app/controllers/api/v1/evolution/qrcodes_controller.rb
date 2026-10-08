@@ -1,4 +1,11 @@
 class Api::V1::Evolution::QrcodesController < Api::V1::BaseController
+  include EvolutionConcern
+
+  require_permissions({
+    show: 'inboxes.read',
+    create: 'inboxes.update'
+  })
+
   def show
     Rails.logger.info "Evolution API get QR code called for instance: #{params[:id]}"
 
@@ -7,8 +14,7 @@ class Api::V1::Evolution::QrcodesController < Api::V1::BaseController
       channel = find_whatsapp_channel_by_instance_name(instance_name)
 
       if channel
-        api_url = channel.provider_config['api_url']
-        api_hash = channel.provider_config['admin_token']
+        api_url, api_hash = evolution_credentials_for!(channel)
 
         result = get_qrcode(api_url, api_hash, instance_name)
 
@@ -31,9 +37,11 @@ class Api::V1::Evolution::QrcodesController < Api::V1::BaseController
     begin
       # Extract parameters
       auth_params = params[:qrcode] || params
-      api_url = auth_params[:api_url]
-      api_hash = auth_params[:api_hash]
       instance_name = auth_params[:instance_name]
+
+      # Resolve credentials with GlobalConfig fallback for legacy channels
+      channel = find_whatsapp_channel_by_instance_name(instance_name)
+      api_url, api_hash = resolve_evolution_credentials(channel, auth_params)
 
       Rails.logger.info "Evolution API: Refreshing QR code for instance #{instance_name}"
 

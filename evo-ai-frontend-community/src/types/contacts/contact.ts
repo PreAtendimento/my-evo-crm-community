@@ -23,7 +23,11 @@ export interface ContactableInboxes {
   updated_at: number;
   available?: boolean;
   can_create_conversation?: boolean;
-  source_id: string;
+  // EVO-1551: backend omits source_id (returns null) for PII-derived
+  // channels (WhatsApp/SMS/Email/Twilio) when the contact PII masking flag
+  // is on. The server regenerates it from `contact_id + inbox_id` on
+  // POST /conversations, so callers must NOT echo a null/empty value back.
+  source_id: string | null;
   channel: Channel;
 }
 
@@ -112,7 +116,7 @@ export interface ContactPipelineInfo {
 export interface Contact {
   id: string;
   name: string;
-  type: 'person' | 'company';
+  type: 'person' | 'company' | 'group';
   email: string;
   phone_number: string;
   thumbnail: string;
@@ -210,7 +214,8 @@ export interface ContactsListParams {
   order?: 'asc' | 'desc';
   labels?: string[];
   q?: string;
-  type?: 'person' | 'company';
+  type?: 'person' | 'company' | 'group';
+  include_groups?: boolean;
   company_id?: string;
   include_contact_inboxes?: boolean;
   created_after?: string;
@@ -224,7 +229,7 @@ export interface ContactsSearchParams {
   page?: number;
   per_page?: number;
   sort?: string;
-  type?: 'person' | 'company';
+  type?: 'person' | 'company' | 'group';
   labels?: string[];
   include_contact_inboxes?: boolean;
 }
@@ -236,7 +241,7 @@ export interface ContactsFilterParams {
 
 export interface ContactCreateData {
   name: string;
-  type: 'person' | 'company';
+  type: 'person' | 'company' | 'group';
   email?: string;
   phone_number?: string;
   identifier?: string;
@@ -271,9 +276,11 @@ export interface ContactsResponse extends PaginatedResponse<Contact> {}
 
 export interface ContactResponse extends StandardResponse<Contact> {}
 
-export interface ContactNotesResponse extends PaginatedResponse<ContactNote> {}
+export interface ContactNotesResponse extends StandardResponse<ContactNote[]> {}
 
-export interface ContactNoteDeleteResponse extends StandardResponse<{ message: string }> {}
+// The delete answers `success_response(data: {}, message: ...)`, so the message
+// is a sibling of `data` (StandardResponse.message), never inside it.
+export interface ContactNoteDeleteResponse extends StandardResponse<Record<string, never>> {}
 
 export interface ContactConversationsResponse extends PaginatedResponse<ContactConversation> {}
 

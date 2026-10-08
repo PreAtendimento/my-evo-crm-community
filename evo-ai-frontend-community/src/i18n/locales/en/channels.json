@@ -30,6 +30,7 @@
   "permissions": {
     "viewDenied": "You don't have permission to view channels",
     "createDenied": "You don't have permission to create channels",
+    "updateDenied": "You don't have permission to update channels",
     "deleteDenied": "You don't have permission to delete channels"
   },
   "errors": {
@@ -132,27 +133,27 @@
       },
       "whatsapp": {
         "name": "WhatsApp",
-        "description": "WhatsApp channel for customer service"
+        "description": "WhatsApp Business"
       },
       "telegram": {
         "name": "Telegram",
-        "description": "Telegram bot for automated support"
+        "description": "Support bot"
       },
       "instagram": {
         "name": "Instagram",
-        "description": "Instagram direct messages"
+        "description": "Professional profile"
       },
       "facebook": {
-        "name": "Facebook Messenger",
-        "description": "Facebook Messenger chat"
+        "name": "Facebook",
+        "description": "Page"
       },
       "sms": {
         "name": "SMS",
-        "description": "SMS text messages"
+        "description": "Text messages"
       },
       "email": {
         "name": "Email",
-        "description": "Email support"
+        "description": "Marketing and support"
       },
       "api": {
         "name": "API",
@@ -186,7 +187,8 @@
       },
       "twilio": {
         "name": "Twilio",
-        "description": "Twilio WhatsApp Business API"
+        "description": "Twilio WhatsApp Business API",
+        "comingSoon": "Coming soon"
       },
       "twilioSms": {
         "name": "Twilio SMS",
@@ -239,9 +241,22 @@
       "connectDescription": "Connect to offer support to your customers through {{channelName}}",
       "apiProvider": "API Provider",
       "facebookIntegrationDescription": "Connect your Facebook account to automatically fill in the WhatsApp Business information"
+    },
+    "fields": {
+      "displayName": {
+        "label": "Display Name",
+        "placeholder": "e.g. Support Team",
+        "helpText": "Friendly name shown to your team."
+      },
+      "channelName": {
+        "label": "Channel Name",
+        "placeholder": "auto-generated",
+        "helpText": "Auto-generated from the display name."
+      }
     }
   },
   "settings": {
+    "updateConfig": "Update Settings",
     "loading": "Loading settings...",
     "saving": "Saving...",
     "save": "Save",
@@ -257,6 +272,9 @@
         "lastConnection": "Last connection: {{date}}",
         "reconnect": "Reconnect",
         "reconnected": "Reconnected successfully!",
+        "syncSubscription": "Resubscribe webhook",
+        "subscriptionSynced": "WhatsApp webhook resubscribed successfully!",
+        "subscriptionSyncError": "Failed to resubscribe webhook. Please try again.",
         "reconnectingWhatsApp": "Reconnecting WhatsApp...",
         "whatsappReconnectNotImplemented": "WhatsApp reconnection is not yet implemented for this provider",
         "reconnectError": "Error reconnecting. Please try again.",
@@ -430,6 +448,16 @@
         "label": "Unavailability Message",
         "placeholder": "Sorry, we're outside business hours...",
         "help": "This message will be sent when outside business hours"
+      },
+      "useTemplate": {
+        "label": "Use global template",
+        "description": "Send a global message template instead of free text"
+      },
+      "template": {
+        "label": "Template",
+        "placeholder": "Select a global template",
+        "empty": "No global templates available",
+        "help": "Manage global templates in Settings → Message Templates"
       },
       "timezone": {
         "label": "Timezone",
@@ -630,6 +658,8 @@
         "templateType": "Template Type",
         "templateTypes": {
           "text": "Text",
+          "interactive": "Interactive",
+          "media": "Media",
           "image": "Image",
           "video": "Video",
           "document": "Document",
@@ -672,6 +702,10 @@
         "liquidHelp": "Use Liquid syntax for dynamic values: {{ contact.name }}",
         "subject": "Subject",
         "subjectPlaceholder": "Email subject",
+        "variables": "Variables",
+        "variableLabel": "Label",
+        "variableExample": "Example",
+        "variableSource": "Source, e.g. contact.name",
         "active": "Active",
         "activeHelp": "Inactive templates won't be available for use",
         "create": "Create Template",
@@ -710,11 +744,12 @@
       },
       "status": {
         "approved": "Approved",
-        "pending": "Pending",
+        "pending": "Awaiting approval",
         "rejected": "Rejected",
         "paused": "Paused",
         "active": "Active",
-        "inactive": "Inactive"
+        "inactive": "Inactive",
+        "unknown": "Unknown status"
       },
       "preview": {
         "title": "Preview",
@@ -843,7 +878,10 @@
           "callRejectionMessage": "Call rejection message",
           "callRejectionPlaceholder": "Message when rejecting calls",
           "saveSettings": "Save Settings",
+          "loading": "Loading instance settings...",
           "errors": {
+            "title": "Configuration Error",
+            "loadFailed": "Failed to load instance status. Check your connection settings.",
             "nameNotFound": "Instance name not found",
             "qrCodeError": "Error generating QR Code",
             "updateError": "Error updating instance settings"
@@ -905,6 +943,26 @@
             "errors": {
               "loadError": "Error loading privacy settings",
               "updateError": "Error updating {{setting}}"
+            }
+          },
+          "connection": {
+            "title": "Connection Settings",
+            "description": "Update the Base URL and API Key of the instance after channel creation",
+            "apiUrlLabel": "Base URL",
+            "apiUrlPlaceholder": "https://api.evolution.com",
+            "adminTokenLabel": "API Key",
+            "adminTokenPlaceholder": "Enter the new API Key",
+            "usingGlobalConfig": "Using Admin Settings defaults",
+            "usingGlobalConfigHint": "The API URL and Token are configured globally in Admin Settings. Fill the fields below only to override the global values for this channel.",
+            "apiUrlGlobalPlaceholder": "Using global config — fill to override",
+            "adminTokenGlobalPlaceholder": "Using global config — fill to override",
+            "saveButton": "Save Connection Settings",
+            "success": {
+              "updated": "Connection settings updated successfully!"
+            },
+            "errors": {
+              "apiUrlRequired": "Base URL is required",
+              "updateError": "Error updating connection settings"
             }
           },
           "actions": {
@@ -1078,12 +1136,32 @@
       }
     },
     "preChatForm": {
-      "success": {
-        "updated": "Pre-chat form settings updated successfully!"
+      "title": "Pre-Chat Form",
+      "description": "Collect visitor information before starting the conversation",
+      "totalFields": "Total Fields",
+      "activeFields": "Active Fields",
+      "requiredFields": "Required Fields",
+      "welcomeMessage": "Welcome Message",
+      "welcomeMessagePlaceholder": "Hello! To better assist you, please complete the information below:",
+      "welcomeMessageHelp": "This message will be displayed at the top of the pre-chat form.",
+      "fieldConfiguration": "Field Configuration",
+      "hidePreview": "Hide Preview",
+      "showPreview": "Show Preview",
+      "formPreview": "Form Preview",
+      "noActiveFields": "No active fields to display",
+      "howItWorksTitle": "How the pre-chat form works",
+      "howItWorks": {
+        "point1": "The form is displayed before the client starts the conversation",
+        "point2": "Collected information is attached to the contact profile",
+        "point3": "Required fields must be completed to continue",
+        "point4": "Use the drag function to reorder fields"
       },
-      "errors": {
-        "updateError": "Error updating pre-chat form settings"
-      }
+      "disabledTitle": "Pre-chat form disabled",
+      "disabledDescription": "Enable to collect visitor information before starting the conversation.",
+      "saving": "Saving...",
+      "save": "Save Settings",
+      "success": "Pre-chat form settings updated successfully",
+      "error": "Error updating pre-chat form settings"
     },
     "greeting": {
       "title": "Greeting Message",
@@ -1095,6 +1173,16 @@
       "message": {
         "label": "Greeting Message",
         "placeholder": "Enter your welcome message here..."
+      },
+      "useTemplate": {
+        "label": "Use global template",
+        "description": "Send a global message template instead of free text"
+      },
+      "template": {
+        "label": "Template",
+        "placeholder": "Select a global template",
+        "empty": "No global templates available",
+        "help": "Manage global templates in Settings → Message Templates"
       }
     },
     "webWidgetAdvanced": {
@@ -1643,5 +1731,51 @@
     "cancel": "Cancel",
     "confirm": "Delete Channel",
     "deleting": "Deleting..."
+  },
+  "overview": {
+    "noIntegrationConfigured": "No integration configured",
+    "title": "Channel overview",
+    "subtitle": "See every channel type, its status, and how to set it up.",
+    "statusLabel": {
+      "active": "Active",
+      "attention": "Needs attention",
+      "error": "Error",
+      "unmonitored": "Not monitored",
+      "available": "Available"
+    },
+    "drawer": {
+      "title": "Connections"
+    },
+    "inboxState": {
+      "connected": "Connected",
+      "disconnected": "Disconnected",
+      "pending": "Awaiting confirmation",
+      "error": "Error",
+      "unknown": "Unknown",
+      "unmonitored": "Not monitored",
+      "checking": "Checking..."
+    },
+    "needsAttention_one": "{{count}} connection needing attention",
+    "needsAttention_other": "{{count}} connections needing attention",
+    "liveCheckFailed": "Live check failed — showing the last known state",
+    "providersCount": "{{count}} providers",
+    "actions": {
+      "manage": "Manage",
+      "manageAria": "Manage connections: {{count}} · {{status}}",
+      "connect": "Connect",
+      "addConnection": "Add connection",
+      "deleteConnection": "Delete connection"
+    },
+    "capabilities": {
+      "publishing": "Publishing",
+      "conversations": "Conversations",
+      "campaigns": "Campaigns"
+    },
+    "statusMeta": {
+      "live": "Live",
+      "stored": "Reported",
+      "storedTooltip": "State reported by the configuration, not verified live",
+      "lastSync": "Synced {{time}}"
+    }
   }
 }

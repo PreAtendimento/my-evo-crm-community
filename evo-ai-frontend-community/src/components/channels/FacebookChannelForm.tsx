@@ -4,6 +4,8 @@ import { useGlobalConfig } from '@/contexts/GlobalConfigContext';
 import ChannelsService from '@/services/channels/channelsService';
 import { toast } from 'sonner';
 import { useLanguage } from '@/hooks/useLanguage';
+import HubConnectButton from '@/components/inbox/HubConnectButton';
+import { FormActionBar } from '@/components/channels/shared/FormActionBar';
 
 // Facebook SDK types
 declare global {
@@ -22,6 +24,7 @@ interface FacebookChannelFormProps {
 export default function FacebookChannelForm({ onSuccess, onCancel }: FacebookChannelFormProps) {
   const { t } = useLanguage('messenger');
   const config = useGlobalConfig();
+  const hubEnabled = config.evolutionHubEnabled === true;
 
   const [hasLoginStarted, setHasLoginStarted] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -276,6 +279,34 @@ export default function FacebookChannelForm({ onSuccess, onCancel }: FacebookCha
     setInboxName('');
   };
 
+  // Evo Hub branch — short-circuit the native Facebook OAuth flow.
+  // The Hub owns the Meta authorization; the button below creates the inbox
+  // via /api/v1/inboxes (via_hub: true) and opens the Hub connect page.
+  if (hubEnabled) {
+    return (
+      <div className="space-y-6">
+        <div className="space-y-2">
+          <label className="text-sm font-medium text-foreground">
+            {t('channelName')}
+          </label>
+          <Input
+            placeholder={t('channelNamePlaceholder')}
+            value={inboxName}
+            onChange={(e) => setInboxName(e.target.value)}
+          />
+        </div>
+        <HubConnectButton channelType="facebook_page" name={inboxName} />
+        <FormActionBar>
+          <div className="flex justify-end">
+            <Button variant="outline" onClick={onCancel} className="min-w-24">
+              {t('cancel')}
+            </Button>
+          </div>
+        </FormActionBar>
+      </div>
+    );
+  }
+
   // Initial state - show login button
   if (!hasLoginStarted) {
     return (
@@ -342,6 +373,14 @@ export default function FacebookChannelForm({ onSuccess, onCancel }: FacebookCha
           <p className="text-sm text-muted-foreground">{t('redirectToAuthorize')}</p>
           <p className="text-xs text-muted-foreground">{t('mustBePageAdmin')}</p>
         </div>
+
+        <FormActionBar>
+          <div className="flex justify-end">
+            <Button variant="outline" onClick={onCancel} className="min-w-24">
+              {t('newChannel.buttons.cancel')}
+            </Button>
+          </div>
+        </FormActionBar>
       </div>
     );
   }
@@ -476,22 +515,24 @@ export default function FacebookChannelForm({ onSuccess, onCancel }: FacebookCha
             </div>
           </div>
 
-          {/* Action Buttons */}
-          <div className="flex justify-end gap-3 pt-4 border-t border-border">
-            <Button variant="outline" onClick={onCancel} disabled={isLoading} className="min-w-24">
-              {t('newChannel.buttons.cancel')}
-            </Button>
-            <Button onClick={handleCreate} disabled={!canProceed || isLoading} className="min-w-32">
-              {isLoading ? (
-                <div className="flex items-center gap-2">
-                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  {t('creating')}
-                </div>
-              ) : (
-                t('createChannel')
-              )}
-            </Button>
-          </div>
+          {/* Action Buttons — standardized footer band */}
+          <FormActionBar>
+            <div className="flex justify-end gap-3">
+              <Button variant="outline" onClick={onCancel} disabled={isLoading} className="min-w-24">
+                {t('newChannel.buttons.cancel')}
+              </Button>
+              <Button onClick={handleCreate} disabled={!canProceed || isLoading} className="min-w-32">
+                {isLoading ? (
+                  <div className="flex items-center gap-2">
+                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    {t('creating')}
+                  </div>
+                ) : (
+                  t('createChannel')
+                )}
+              </Button>
+            </div>
+          </FormActionBar>
         </div>
       )}
 

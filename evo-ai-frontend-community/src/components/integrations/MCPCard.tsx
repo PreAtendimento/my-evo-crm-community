@@ -1,13 +1,12 @@
 import { useLanguage } from '@/hooks/useLanguage';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle, Button } from '@evoapi/design-system';
-import { Plus, Check, Settings } from 'lucide-react';
+import { Button } from '@evoapi/design-system';
+import { Plus, Check, AlertCircle } from 'lucide-react';
+import { CompactIntegrationCard } from './CompactIntegrationCard';
 
 interface AvailableMCP {
   id: string;
   name: string;
   description: string;
-  logo: string;
-  logoDark?: string;
 }
 
 interface MCPCardProps {
@@ -17,7 +16,6 @@ interface MCPCardProps {
   isConnected: boolean;
   onToggle?: () => void;
   onConfigure?: () => void;
-  showComingSoon?: boolean;
 }
 
 export function MCPCard({
@@ -27,66 +25,65 @@ export function MCPCard({
   isConnected,
   onToggle,
   onConfigure,
-  showComingSoon = false,
 }: MCPCardProps) {
   const { t } = useLanguage('aiAgents');
 
-  const renderActionButtons = () => {
-    // Not configured - show disabled button
+  // Coming soon -> Activate -> Activated. "Activated" stays clickable when a dialog
+  // exists, to reconfigure.
+  const renderAction = () => {
     if (!isConfigured) {
       return (
-        <Button variant="outline" className="w-full gap-2 opacity-50 cursor-not-allowed" disabled>
-          <Plus className="h-4 w-4" />
-          {t('edit.integrations.activate') || 'ATIVAR INTEGRAÇÃO'}
+        <Button
+          variant="outline"
+          className="w-full cursor-not-allowed gap-2 border-border text-muted-foreground md:w-auto"
+          disabled
+        >
+          <AlertCircle className="h-4 w-4" />
+          {t('edit.integrations.notAvailable') || 'Em breve'}
         </Button>
       );
     }
 
-    // Connected - show active status and configure button
     if (isConnected) {
       return (
-        <>
-          <Button
-            variant="success"
-            className="w-full gap-2 bg-green-600 text-white hover:bg-green-700 border-green-600 cursor-default"
-            disabled
-          >
-            <Check className="h-4 w-4" />
-            {t('edit.integrations.active') || 'ATIVO'}
-          </Button>
-          {onConfigure && (
-            <Button variant="outline" className="w-full gap-2" onClick={onConfigure}>
-              <Settings className="h-4 w-4" />
-              {t('edit.integrations.configure') || 'CONFIGURAR'}
-            </Button>
-          )}
-        </>
-      );
-    }
-
-    // Configured but not connected - show activate button
-    if (onConfigure) {
-      return (
-        <Button variant="outline" className="w-full gap-2" onClick={onConfigure}>
-          <Plus className="h-4 w-4" />
-          {t('edit.integrations.activate') || 'ATIVAR INTEGRAÇÃO'}
+        <Button
+          variant="outline"
+          className="w-full gap-2 border-primary/40 text-primary hover:bg-primary/10 md:w-auto"
+          onClick={onConfigure}
+          disabled={!onConfigure}
+          title={t('edit.integrations.configure') || 'Configurar'}
+        >
+          <Check className="h-4 w-4" />
+          {t('edit.integrations.active') || 'Ativado'}
         </Button>
       );
     }
 
-    // Simple toggle for other MCPs
+    if (onConfigure) {
+      return (
+        <Button variant="outline" className="w-full gap-2 md:w-auto" onClick={onConfigure}>
+          <Plus className="h-4 w-4" />
+          {t('edit.integrations.activate') || 'Ativar'}
+        </Button>
+      );
+    }
+
     if (onToggle) {
       return (
-        <Button variant="outline" className="w-full gap-2" onClick={onToggle}>
+        <Button
+          variant="outline"
+          className={`w-full gap-2 md:w-auto ${isEnabled ? 'border-primary/40 text-primary hover:bg-primary/10' : ''}`}
+          onClick={onToggle}
+        >
           {isEnabled ? (
             <>
               <Check className="h-4 w-4" />
-              {t('mcpServers.enabled') || 'ATIVO'}
+              {t('edit.integrations.active') || 'Ativado'}
             </>
           ) : (
             <>
               <Plus className="h-4 w-4" />
-              {t('mcpServers.enable') || 'ATIVAR'}
+              {t('edit.integrations.activate') || 'Ativar'}
             </>
           )}
         </Button>
@@ -97,45 +94,11 @@ export function MCPCard({
   };
 
   return (
-    <Card className="hover:border-primary/50 transition-colors flex flex-col">
-      <CardHeader className="flex flex-col items-center text-center space-y-4 pb-4">
-        {/* Logo */}
-        <div className="flex items-center justify-center w-20 h-20 p-3 rounded-lg bg-muted/50">
-          {mcp.logoDark ? (
-            <>
-              <img
-                src={mcp.logo}
-                alt={`${mcp.name} logo`}
-                className="h-full w-full object-contain dark:hidden"
-              />
-              <img
-                src={mcp.logoDark}
-                alt={`${mcp.name} logo dark`}
-                className="h-full w-full object-contain hidden dark:block"
-              />
-            </>
-          ) : (
-            <img src={mcp.logo} alt={`${mcp.name} logo`} className="h-full w-full object-contain" />
-          )}
-        </div>
-
-        {/* Title */}
-        <CardTitle className="text-xl font-semibold">{mcp.name}</CardTitle>
-
-        {/* Coming Soon Badge */}
-        {showComingSoon && (
-          <span className="px-1 py-0.5 text-[12px] font-medium bg-blue-500/20 text-blue-400 rounded border border-blue-500/30">
-            {t('mcpServers.comingSoon') || 'Em breve'}
-          </span>
-        )}
-
-        {/* Description */}
-        <CardDescription className="text-sm leading-relaxed">{mcp.description}</CardDescription>
-      </CardHeader>
-
-      {/* Action Buttons */}
-      <CardContent className="mt-auto pt-0 space-y-2">{renderActionButtons()}</CardContent>
-    </Card>
+    <CompactIntegrationCard
+      id={mcp.id}
+      name={mcp.name}
+      description={mcp.description}
+      action={renderAction()}
+    />
   );
 }
-

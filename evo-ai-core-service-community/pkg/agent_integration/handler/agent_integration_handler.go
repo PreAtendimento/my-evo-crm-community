@@ -1,7 +1,12 @@
 package handler
 
 import (
+	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
+	"strings"
+	"time"
 
 	"evo-ai-core-service/internal/httpclient/errors"
 	"evo-ai-core-service/internal/httpclient/response"
@@ -20,6 +25,7 @@ type AgentIntegrationHandler interface {
 	GetByProvider(c *gin.Context)
 	ListByAgent(c *gin.Context)
 	Delete(c *gin.Context)
+	ListKnowledgeNexusSpaces(c *gin.Context)
 }
 
 // agentIntegrationHandler implements the AgentIntegrationHandler interface
@@ -67,6 +73,17 @@ func (h *agentIntegrationHandler) RegisterRoutesMiddleware(router gin.IRouter) {
 		integrations.DELETE("/:provider",
 			permissionMiddleware.RequirePermission("ai_agents", "update"),
 			h.Delete)
+	}
+
+	// Provider-specific helper endpoints (no agent_id scope — used by the
+	// Agent Builder dialog to discover remote resources before saving an
+	// integration). Kept under /integrations/* to keep all integration-related
+	// surface together without shadowing the /:id/:provider params above.
+	integrationHelpers := router.Group("/integrations/knowledge-nexus")
+	{
+		integrationHelpers.POST("/list-spaces",
+			permissionMiddleware.RequirePermission("ai_agents", "update"),
+			h.ListKnowledgeNexusSpaces)
 	}
 }
 
@@ -164,4 +181,171 @@ func (h *agentIntegrationHandler) Delete(c *gin.Context) {
 	}
 
 	response.SuccessResponse(c, nil, "Agent integration deleted successfully", http.StatusNoContent)
+}
+
+// listKnowledgeNexusSpacesRequest is the body schema for the
+// POST /integrations/knowledge-nexus/list-spaces proxy endpoint.
+type listKnowledgeNexusSpacesRequest struct {
+	// Legacy mode: the user is typing a NEW configuration, so the caller holds
+	// both values and forwarding them adds no exposure.
+	NexusBaseURL string `json:"nexus_base_url"`
+	NexusAPIKey  string `json:"nexus_api_key"`
+	// Saved mode: the key was retired from the screen (story 2.7), so the
+	// server resolves BOTH the base URL and the credential from the agent's
+	// stored integration row.
+	AgentID string `json:"agent_id"`
+}
+
+// usesSavedCredential reports whether the server must resolve the target from
+// the stored integration instead of trusting the request.
+func (r listKnowledgeNexusSpacesRequest) usesSavedCredential() bool {
+	return strings.TrimSpace(r.AgentID) != "" && strings.TrimSpace(r.NexusAPIKey) == ""
+}
+
+// validate enforces the security invariant: a vault-resolved key only ever goes
+// to the base URL stored in the SAME row. Server-resolved credential plus
+// caller-supplied URL is credential exfiltration, so the two modes are mutually
+// exclusive and mixing them is rejected rather than silently resolved.
+func (r listKnowledgeNexusSpacesRequest) validate() error {
+	hasReference := strings.TrimSpace(r.AgentID) != ""
+	hasKey := strings.TrimSpace(r.NexusAPIKey) != ""
+	hasURL := strings.TrimSpace(r.NexusBaseURL) != ""
+
+	if hasReference && hasKey {
+		return fmt.Errorf("send either agent_id or nexus_api_key, never both")
+	}
+	if hasReference && hasURL {
+		return fmt.Errorf("nexus_base_url cannot be supplied with agent_id: the saved base URL is used")
+	}
+	if hasReference {
+		return nil
+	}
+	if !hasKey || !hasURL {
+		return fmt.Errorf("nexus_base_url and nexus_api_key are required, or agent_id to use the saved credential")
+	}
+
+	return nil
+}
+
+// ListKnowledgeNexusSpaces proxies a GET to the user's EvoNexus instance to
+// list available knowledge spaces. This exists because the Nexus dashboard
+// does not emit CORS headers, so the browser cannot call it directly from the
+// Agent Builder dialog. The endpoint never persists the credentials; they are
+// only used to build the upstream request and are discarded after the call.
+func (h *agentIntegrationHandler) ListKnowledgeNexusSpaces(c *gin.Context) {
+	var req listKnowledgeNexusSpacesRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.ValidationErrorResponse(c, err)
+		return
+	}
+
+	if err := req.validate(); err != nil {
+		response.ErrorResponse(c, "validation_error", err.Error(), nil, http.StatusBadRequest)
+		return
+	}
+
+	baseURL := strings.TrimRight(strings.TrimSpace(req.NexusBaseURL), "/")
+	apiKey := strings.TrimSpace(req.NexusAPIKey)
+
+	if req.usesSavedCredential() {
+		// Both values come from the SAME stored row, which is what keeps a
+		// resolved credential from ever reaching a caller-chosen host.
+		savedURL, savedKey, err := h.service.ResolveNexusTarget(c.Request.Context(), req.AgentID)
+		if err != nil {
+			response.ErrorResponse(c, "not_found", err.Error(), nil, http.StatusNotFound)
+			return
+		}
+		baseURL = strings.TrimRight(strings.TrimSpace(savedURL), "/")
+		apiKey = strings.TrimSpace(savedKey)
+	}
+
+	if baseURL == "" || apiKey == "" {
+		response.ErrorResponse(
+			c,
+			"validation_error",
+			"the saved Knowledge Nexus integration has no usable base URL and credential",
+			nil,
+			http.StatusBadRequest,
+		)
+		return
+	}
+
+	upstreamURL := baseURL + "/api/knowledge/v1/spaces"
+	httpReq, err := http.NewRequestWithContext(c.Request.Context(), http.MethodGet, upstreamURL, nil)
+	if err != nil {
+		response.ErrorResponse(c, "bad_request", err.Error(), nil, http.StatusBadRequest)
+		return
+	}
+	httpReq.Header.Set("Authorization", "Bearer "+apiKey)
+	httpReq.Header.Set("Accept", "application/json")
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(httpReq)
+	if err != nil {
+		response.ErrorResponse(
+			c,
+			"upstream_unreachable",
+			"could not reach Nexus: "+err.Error(),
+			nil,
+			http.StatusBadGateway,
+		)
+		return
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		// Forward the upstream payload (typically {"spaces": [...]}) verbatim.
+		var payload map[string]interface{}
+		if err := json.Unmarshal(body, &payload); err != nil {
+			response.ErrorResponse(
+				c,
+				"invalid_upstream_response",
+				"Nexus returned a non-JSON response",
+				nil,
+				http.StatusBadGateway,
+			)
+			return
+		}
+		response.SuccessResponse(c, payload, "Nexus spaces retrieved successfully", http.StatusOK)
+	case http.StatusUnauthorized:
+		response.ErrorResponse(
+			c,
+			"unauthorized",
+			"Nexus rejected the API key",
+			nil,
+			http.StatusUnauthorized,
+		)
+	case http.StatusForbidden:
+		response.ErrorResponse(
+			c,
+			"forbidden",
+			"Nexus API key does not have permission to list spaces",
+			nil,
+			http.StatusForbidden,
+		)
+	case http.StatusTooManyRequests:
+		response.ErrorResponse(
+			c,
+			"rate_limited",
+			"Nexus rate limit exceeded",
+			nil,
+			http.StatusTooManyRequests,
+		)
+	default:
+		// Surface the upstream status + a snippet so the user can debug.
+		snippet := string(body)
+		if len(snippet) > 300 {
+			snippet = snippet[:300]
+		}
+		response.ErrorResponse(
+			c,
+			"upstream_error",
+			"Nexus returned status "+http.StatusText(resp.StatusCode)+": "+snippet,
+			nil,
+			http.StatusBadGateway,
+		)
+	}
 }

@@ -3,16 +3,17 @@
 class SetupBootstrapService
   class AlreadyBootstrappedError < StandardError; end
 
-  def self.call(first_name:, last_name:, email:, password:, client_ip: nil)
-    new(first_name:, last_name:, email:, password:, client_ip:).call
+  def self.call(first_name:, last_name:, email:, password:, client_ip: nil, extension_payload: {})
+    new(first_name:, last_name:, email:, password:, client_ip:, extension_payload:).call
   end
 
-  def initialize(first_name:, last_name:, email:, password:, client_ip: nil)
-    @first_name = first_name
-    @last_name  = last_name
-    @email      = email
-    @password   = password
-    @client_ip  = client_ip
+  def initialize(first_name:, last_name:, email:, password:, client_ip: nil, extension_payload: {})
+    @first_name        = first_name
+    @last_name         = last_name
+    @email             = email
+    @password          = password
+    @client_ip         = client_ip
+    @extension_payload = extension_payload || {}
   end
 
   def call
@@ -26,9 +27,13 @@ class SetupBootstrapService
       ensure_account_config
       user      = create_user
       assign_global_role(user)
+      # The consumer is fail-soft by design — raising here would roll the whole
+      # install back — so its return value is the only signal that it ran without
+      # finishing. See EvoExtensionPoints::AfterBootstrap 1.1.0.
+      provisioning = EvoExtensionPoints::AfterBootstrap.run(user: user, payload: @extension_payload)
 
       survey_token = generate_survey_token(user)
-      { user: user, survey_token: survey_token }
+      { user: user, survey_token: survey_token, provisioning: provisioning }
     end
 
     activate_licensing(result[:user])
@@ -75,8 +80,12 @@ class SetupBootstrapService
   end
 
   def assign_global_role(user)
-    role = Role.find_by!(key: 'account_owner')
-    UserRole.assign_role_to_user(user, role) unless user.has_role?('account_owner')
+    # The bootstrap user is the installation owner — they get `super_admin`,
+    # the only role that holds installation_configs.manage and can render the
+    # /settings/admin panel. Subsequent users created through the UI keep
+    # being assigned `account_owner` (or `agent`) by AgentBuilder.
+    role = Role.find_by(key: 'super_admin') || Role.find_by!(key: 'account_owner')
+    UserRole.assign_role_to_user(user, role) unless user.has_role?(role.key)
   end
 
   def create_oauth_app
@@ -107,17 +116,15 @@ class SetupBootstrapService
   end
 
   def activate_licensing(user)
-    store       = Licensing::Store.new
-    instance_id = store.load_or_create_instance_id
-
-    Licensing::Setup.perform(
-      email:       user.email,
-      name:        user.name,
-      instance_id: instance_id,
-      version:     Licensing::Activation::VERSION,
-      client_ip:   @client_ip
+    # Best-effort, fully asynchronous: the bootstrap response must never hang
+    # waiting for the licensing server. The job retries internally and falls
+    # back to the heartbeat-driven reactivation if it cannot reach the server.
+    Licensing::SetupJob.perform_later(
+      email:     user.email,
+      name:      user.name,
+      client_ip: @client_ip
     )
   rescue StandardError => e
-    Rails.logger.warn "[SetupBootstrap] Licensing activation failed (will retry on first login): #{e.message}"
+    Rails.logger.warn "[SetupBootstrap] Failed to enqueue licensing setup: #{e.message}"
   end
 end

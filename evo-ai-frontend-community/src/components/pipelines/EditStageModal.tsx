@@ -22,8 +22,17 @@ import {
   TabsTrigger,
 } from '@evoapi/design-system';
 import { PipelineStage } from '@/types/analytics';
+import type { StageAutomationRule } from '@/types/analytics/pipelines';
+import type { Label as ConversationLabel } from '@/types/settings/labels';
+import { labelsService } from '@/services/contacts/labelsService';
+import { pipelinesService } from '@/services/pipelines/pipelinesService';
+import agentBotsService from '@/services/channels/agentBotsService';
+import globalMessageTemplatesService from '@/services/messageTemplates/globalMessageTemplatesService';
+import type { AgentBotOption, MessageTemplateOption } from './StageAutomationRules';
 import { LocalAttributeDefinition, LocalAttributeDefinitionPayload } from '@/types/pipelines/localAttributeDefinition';
 import PipelineStageCustomAttributes from './PipelineStageCustomAttributes';
+import StageAutomationRules, { type PipelineWithStages } from './StageAutomationRules';
+import { buildAutomationRulesPayload } from './stageAutomationPayload';
 
 // Cores predefinidas para as etapas
 const getStageColors = (t: (key: string) => string) => [
@@ -39,6 +48,11 @@ const getStageColors = (t: (key: string) => string) => [
   { value: '#6B7280', label: t('editStage.colors.gray') },
 ];
 
+interface Agent {
+  id: string;
+  name: string;
+}
+
 interface EditStageModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -47,12 +61,14 @@ interface EditStageModalProps {
     name: string;
     color: string;
     stage_type: string;
-    automation_rules?: { description?: string };
+    automation_rules: { description: string; rules: StageAutomationRule[] };
     custom_fields?: Record<string, unknown> & {
       attributes?: string[];
     };
   }) => void;
   loading: boolean;
+  stages?: PipelineStage[];
+  agents?: Agent[];
 }
 
 export default function EditStageModal({
@@ -61,6 +77,8 @@ export default function EditStageModal({
   stage,
   onSubmit,
   loading,
+  stages = [],
+  agents = [],
 }: EditStageModalProps) {
   const { t } = useLanguage('pipelines');
   const [name, setName] = useState('');
@@ -68,8 +86,114 @@ export default function EditStageModal({
   const [stageType, setStageType] = useState('active');
   const [description, setDescription] = useState('');
   const [customAttributes, setCustomAttributes] = useState<Record<string, unknown>>({});
+  const [automationRules, setAutomationRules] = useState<StageAutomationRule[]>([]);
+  const [labels, setLabels] = useState<ConversationLabel[]>([]);
+  const [pipelinesWithStages, setPipelinesWithStages] = useState<PipelineWithStages[]>([]);
+  const [agentBots, setAgentBots] = useState<AgentBotOption[]>([]);
+  const [messageTemplates, setMessageTemplates] = useState<MessageTemplateOption[]>([]);
 
   const stageColors = getStageColors(t);
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    labelsService
+      .getLabels({ per_page: 200 })
+      .then(res => {
+        if (cancelled) return;
+        setLabels(res.data ?? []);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setLabels([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
+
+  // Agent bots (for send_ai_message) and channel-less templates (for
+  // send_template). These are the real AgentBot records, not human assignees.
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+
+    agentBotsService
+      .getAll()
+      .then(bots => {
+        if (cancelled) return;
+        setAgentBots(bots.map(b => ({ id: String(b.id), name: b.name })));
+      })
+      .catch(() => {
+        if (!cancelled) setAgentBots([]);
+      });
+
+    globalMessageTemplatesService
+      .getTemplates()
+      .then(res => {
+        if (cancelled) return;
+        setMessageTemplates(
+          (res.data ?? []).map(tpl => ({
+            id: String(tpl.id),
+            name: tpl.name,
+            language: tpl.language,
+            status: tpl.status,
+          })),
+        );
+      })
+      .catch(() => {
+        if (!cancelled) setMessageTemplates([]);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+
+    const load = async () => {
+      try {
+        const list = await pipelinesService.getPipelines();
+        const pipelinesArray =
+          (list as { data?: { id: string; name: string }[] } | null)?.data ?? [];
+        if (pipelinesArray.length === 0) {
+          if (!cancelled) setPipelinesWithStages([]);
+          return;
+        }
+
+        const stagesResults = await Promise.allSettled(
+          pipelinesArray.map(p => pipelinesService.getPipelineStages(p.id)),
+        );
+
+        if (cancelled) return;
+
+        const enriched: PipelineWithStages[] = pipelinesArray.map((p, idx) => {
+          const res = stagesResults[idx];
+          const stageList =
+            res.status === 'fulfilled' && res.value
+              ? ((res.value as { data?: { id: string; name: string }[] }).data ?? [])
+              : [];
+          return {
+            id: p.id,
+            name: p.name,
+            stages: stageList.map(s => ({ id: s.id, name: s.name })),
+          };
+        });
+
+        setPipelinesWithStages(enriched);
+      } catch {
+        if (!cancelled) setPipelinesWithStages([]);
+      }
+    };
+
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
 
   // Initialize form when modal opens or stage changes
   useEffect(() => {
@@ -78,6 +202,7 @@ export default function EditStageModal({
       setColor(stage.color);
       setStageType(stage.stage_type || 'active');
       setDescription(stage.automation_rules?.description || stage.description || '');
+      setAutomationRules(stage.automation_rules?.rules || []);
       // Load attributes array from custom_fields.attributes
       // Structure: custom_fields = { attributes: ["key1", "key2", ...] }
       const attributesArray = (stage.custom_fields?.attributes as string[]) || [];
@@ -107,12 +232,9 @@ export default function EditStageModal({
 
   const handleSubmit = () => {
     if (!name.trim() || !stage) return;
-    
-    const automationRules: { description?: string } = {};
-    if (description) {
-      automationRules.description = description;
-    }
-    
+
+    const automationRulesPayload = buildAutomationRulesPayload(description, automationRules);
+
     const attributeKeys = Object.keys(customAttributes);
     const attributeDefinitions = Object.entries(customAttributes).reduce(
       (acc, [key, value]) => {
@@ -139,7 +261,7 @@ export default function EditStageModal({
       name: name.trim(),
       color,
       stage_type: stageType,
-      automation_rules: Object.keys(automationRules).length > 0 ? automationRules : undefined,
+      automation_rules: automationRulesPayload,
       custom_fields: attributeKeys.length > 0
         ? {
             ...existingCustomFields,
@@ -167,8 +289,9 @@ export default function EditStageModal({
         </DialogHeader>
 
         <Tabs defaultValue="details" className="flex-1 flex flex-col min-h-0">
-          <TabsList className="grid w-full grid-cols-2">
+          <TabsList className="grid w-full grid-cols-3">
             <TabsTrigger value="details">{t('editStage.details')}</TabsTrigger>
+            <TabsTrigger value="automation">{t('editStage.automation')}</TabsTrigger>
             <TabsTrigger value="attributes">{t('editStage.customAttributes')}</TabsTrigger>
           </TabsList>
 
@@ -269,6 +392,22 @@ export default function EditStageModal({
               </div>
             </div>
           </div>
+          </TabsContent>
+
+          <TabsContent value="automation" className="py-4 overflow-y-auto flex-1">
+            <StageAutomationRules
+              rules={automationRules}
+              onChange={setAutomationRules}
+              disabled={loading}
+              currentStageId={stage?.id}
+              currentPipelineId={stage?.pipeline_id}
+              stages={stages}
+              agents={agents}
+              labels={labels}
+              pipelines={pipelinesWithStages}
+              agentBots={agentBots}
+              messageTemplates={messageTemplates}
+            />
           </TabsContent>
 
           <TabsContent value="attributes" className="py-4 overflow-y-auto flex-1">

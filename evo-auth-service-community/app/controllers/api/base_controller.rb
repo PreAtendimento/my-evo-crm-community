@@ -1,4 +1,8 @@
 class Api::BaseController < ApplicationController
+  # Rescuable matches in reverse declaration order, so a catch-all only stays a
+  # fallback while every specific handler is declared after it.
+  rescue_from StandardError, with: :handle_internal_error
+
   include Pundit::Authorization
   include PermissionCheckable
   include ApiResponseHelper
@@ -19,8 +23,7 @@ class Api::BaseController < ApplicationController
   rescue_from ActiveRecord::RecordNotUnique, with: :handle_record_not_unique
   rescue_from Pundit::NotAuthorizedError, with: :handle_not_authorized
   rescue_from ActionController::ParameterMissing, with: :handle_parameter_missing
-  rescue_from StandardError, with: :handle_internal_error
-  
+
   private
 
   def authenticate_request!
@@ -167,10 +170,12 @@ class Api::BaseController < ApplicationController
 
   # Format validation errors into structured array
   def format_validation_errors(errors)
-    errors.messages.map do |field, messages|
+    errors.attribute_names.map do |field|
+      field_errors = errors.where(field)
       {
         field: field,
-        messages: messages,
+        codes: field_errors.filter_map { |e| "#{field}.#{e.type}" if e.type.is_a?(Symbol) },
+        messages: field_errors.map(&:message),
         full_messages: errors.full_messages_for(field)
       }
     end

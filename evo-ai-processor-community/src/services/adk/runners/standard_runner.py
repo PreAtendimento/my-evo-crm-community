@@ -37,6 +37,13 @@ from sqlalchemy.orm import Session
 from typing import Optional, Dict, Any
 from src.services.session_service import create_execution_metrics
 from src.schemas.schemas import ExecutionMetricsCreate
+from src.evo_extension_points import (
+    ExecutionMetrics,
+    capability_gate,
+    impl_for as ep_impl_for,
+    runtime_context,
+    usage_reporter,
+)
 import uuid
 
 logger = setup_logger(__name__)
@@ -68,6 +75,34 @@ class StandardRunner:
             logger.info(
                 f"Starting execution of agent {agent_id} for external_id {external_id}"
             )
+
+            # Extension point: capability gate. Community default returns True
+            # for every capability, so behavior is unchanged unless a consumer
+            # mounts a denying gate. Denial short-circuits with a structured
+            # error code rather than a fake agent reply.
+            capability = (metadata or {}).get("capability")
+            if capability and not capability_gate.is_enabled(
+                capability, context=metadata
+            ):
+                logger.warning(
+                    f"capability_gate denied capability={capability!r} for"
+                    f" agent={agent_id} external_id={external_id}"
+                )
+                return {
+                    "error": "capability_denied",
+                    "capability": capability,
+                    "message_history": [],
+                }
+
+            # Extension point: runtime context resolution. Default returns
+            # None; consumer overrides return an operational context id that
+            # is logged here and (in a follow-up) propagated into metrics.
+            context_id = runtime_context.current_context_id(metadata)
+            if context_id:
+                logger.info(
+                    f"runtime_context resolved id={context_id!r}"
+                    f" for agent={agent_id}"
+                )
 
             # Get and build agent
             root_agent, state_params = await self.utils.get_and_build_agent(agent_id)
@@ -449,14 +484,17 @@ class StandardRunner:
                 )
 
                 try:
-                    # Handle both Pydantic v2 (model_dump) and older versions
-                    if hasattr(root_agent.model, "model_dump"):
-                        model_dict = root_agent.model.model_dump()
-                    elif hasattr(root_agent.model, "dict"):
-                        model_dict = root_agent.model.dict()
+                    if not hasattr(root_agent, "model"):
+                        model_str = "external"
                     else:
-                        model_dict = root_agent.model.__dict__
-                    model_str = model_dict.get("model", str(root_agent.model))
+                        # Handle both Pydantic v2 (model_dump) and older versions
+                        if hasattr(root_agent.model, "model_dump"):
+                            model_dict = root_agent.model.model_dump()
+                        elif hasattr(root_agent.model, "dict"):
+                            model_dict = root_agent.model.dict()
+                        else:
+                            model_dict = root_agent.model.__dict__
+                        model_str = model_dict.get("model", str(root_agent.model))
                     metrics_data = ExecutionMetricsCreate(
                         agent_id=uuid.UUID(agent_id),
                         session_id=adk_session_id,
@@ -470,6 +508,27 @@ class StandardRunner:
                     create_execution_metrics(self.db, metrics_data)
                 except Exception as e:
                     logger.error(f"Error creating execution metrics: {e}")
+
+                # Extension point: usage reporter. Always called after the
+                # local persistence above; default is a no-op. A misbehaving
+                # consumer cannot break the run — we swallow the exception
+                # and log with full context.
+                try:
+                    usage_reporter.report_execution(
+                        ExecutionMetrics(
+                            execution_id=adk_session_id,
+                            prompt_tokens=total_prompt_tokens,
+                            candidate_tokens=total_candidate_tokens,
+                            total_tokens=total_tokens,
+                            cost=0.0,
+                        )
+                    )
+                except Exception:
+                    logger.exception(
+                        "usage_reporter.report_execution failed for"
+                        f" execution_id={adk_session_id!r}"
+                        f" impl={ep_impl_for('usage_reporter')!r}"
+                    )
 
             except Exception as e:
                 logger.error(f"Error processing request: {str(e)}")

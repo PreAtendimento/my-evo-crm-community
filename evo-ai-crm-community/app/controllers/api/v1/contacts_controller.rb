@@ -35,6 +35,11 @@ class Api::V1::ContactsController < Api::V1::BaseController
   def index
     @contacts = fetch_contacts(listable_contacts)
 
+    # Use cached count to avoid expensive COUNT(*) queries on large datasets
+    @contacts_count = Rails.cache.fetch(cache_key_for_contacts_count, expires_in: 1.minute) do
+      listable_contacts.count
+    end
+
     apply_pagination
 
     paginated_response(
@@ -148,11 +153,27 @@ class Api::V1::ContactsController < Api::V1::BaseController
     @all_contactable_inboxes = Contacts::ContactableInboxesService.new(contact: @contact).get
     @contactable_inboxes = @all_contactable_inboxes.select { |contactable_inbox| policy(contactable_inbox[:inbox]).show? }
 
+    # EVO-1551 round 4 — B3 fix.
+    # `source_id` for WhatsApp/SMS/Email/Twilio is literally the contact's
+    # phone/email (see Contacts::ContactableInboxesService). We cannot mask
+    # in place because the frontend echoes the value back to
+    # `POST /conversations`. The conversations controller accepts
+    # `contact_id + inbox_id` alone — `ContactInboxBuilder` regenerates the
+    # source_id server-side. So when the agent's masking predicate is on,
+    # we strip the source_id for any channel NOT explicitly whitelisted as
+    # safe. Default-deny means a future channel that exposes PII through
+    # source_id is stripped automatically until someone audits it.
+    strip_source_id = ContactPiiMasker.should_mask?
+
     contactable_inboxes = @contactable_inboxes.map do |contactable_inbox|
-      InboxSerializer.serialize(contactable_inbox[:inbox], include_channel: true).merge(
+      inbox = contactable_inbox[:inbox]
+      source_id = contactable_inbox[:source_id]
+      source_id = nil if strip_source_id && !safe_to_expose_source_id?(inbox)
+
+      InboxSerializer.serialize(inbox, include_channel: true).merge(
         available: true,
         can_create_conversation: true,
-        source_id: contactable_inbox[:source_id]
+        source_id: source_id
       )
     end
 
@@ -160,6 +181,25 @@ class Api::V1::ContactsController < Api::V1::BaseController
       data: contactable_inboxes,
       message: 'Contactable inboxes retrieved successfully'
     )
+  end
+
+  # EVO-1551 round 4 — B3 helper.
+  # Allowlist of channel types whose `source_id` is NOT PII and that the
+  # frontend genuinely needs to round-trip. Default-deny: any new channel
+  # is treated as PII-bearing until explicitly audited and added here.
+  #   - Api / WebWidget / FacebookPage: source_id is a SecureRandom UUID.
+  #   - Telegram: source_id is the opaque Telegram user id.
+  #   - Instagram: source_id is the IG user id (no phone embedded).
+  #   - Whatsapp without phone_number: BSUID-only contact — opaque id.
+  def safe_to_expose_source_id?(inbox)
+    case inbox.channel_type
+    when 'Channel::Api', 'Channel::WebWidget', 'Channel::FacebookPage', 'Channel::Telegram', 'Channel::Instagram'
+      true
+    when 'Channel::Whatsapp'
+      @contact.phone_number.blank?
+    else
+      false
+    end
   end
 
   # TODO : refactor this method into dedicated contacts/custom_attributes controller class and routes
@@ -276,7 +316,11 @@ class Api::V1::ContactsController < Api::V1::BaseController
   end
 
   def companies_list
-    companies = Contact.all.resolved_contacts.where(type: 'company').select(:id, :name, :type, :location, :country_code).order(:name)
+    # A company is a deliberately-created structural entity (Contact type=company),
+    # so it must be selectable even without email/phone/identifier. Bypassing
+    # resolved_contacts keeps newly-created companies visible in the linked-companies
+    # picker and the contacts company filter (EVO-1887).
+    companies = Contact.companies.select(:id, :name, :type, :location, :country_code).order(:name)
 
     success_response(
       data: companies.map { |company| { id: company.id, name: company.name } },
@@ -331,6 +375,18 @@ class Api::V1::ContactsController < Api::V1::BaseController
 
   private
 
+  # Cache key for contacts count, varies by query parameters that affect listable contacts
+  def cache_key_for_contacts_count
+    # Build a deterministic string based on filters that influence the count
+    key_parts = [
+      params[:type],
+      params[:company_id],
+      params[:labels]&.sort&.join(','),
+      params[:q] # search query, if any
+    ].compact.join('/')
+    "contacts_count/#{key_parts.presence || 'all'}"
+  end
+
   # TODO: Move this to a finder class
   def listable_contacts
     return @listable_contacts if @listable_contacts
@@ -339,7 +395,11 @@ class Api::V1::ContactsController < Api::V1::BaseController
     contacts_with_name = Contact.all.where("contacts.name IS NOT NULL AND BTRIM(contacts.name) <> ''")
     @listable_contacts = contacts_with_identity.or(contacts_with_name)
 
-    @listable_contacts = @listable_contacts.where(type: params[:type]) if params[:type].present?
+    if params[:type].present?
+      @listable_contacts = @listable_contacts.where(type: params[:type])
+    elsif params[:include_groups] != 'true'
+      @listable_contacts = @listable_contacts.non_groups
+    end
 
     @listable_contacts = @listable_contacts.for_company(params[:company_id]) if params[:company_id].present?
 
@@ -382,7 +442,8 @@ class Api::V1::ContactsController < Api::V1::BaseController
   def build_contact_inbox
     return if params[:inbox_id].blank?
 
-    inbox = Inbox.all.find(params[:inbox_id])
+    inbox = (current_user&.assigned_inboxes || Inbox.all).find(params[:inbox_id])
+    authorize inbox, :show?
     ContactInboxBuilder.new(
       contact: @contact,
       inbox: inbox,
@@ -527,6 +588,11 @@ class Api::V1::ContactsController < Api::V1::BaseController
 
   def cleanup_contact_dependent_records(contact)
     conversation_ids = contact.conversations.pluck(:id)
+
+    # macro_executions has a FK to conversations and is NOT covered by any
+    # dependent: :destroy, so destroying the conversation raises a
+    # PG::ForeignKeyViolation (fk_rails_bba8c38932) -> 422 OPERATION_NOT_ALLOWED.
+    MacroExecution.where(conversation_id: conversation_ids).destroy_all
 
     contact.conversations.find_each do |conversation|
       conversation.facebook_comment_moderations.destroy_all

@@ -10,17 +10,17 @@ ENV PNPM_VERSION=${PNPM_VERSION}
 # ARG default to production settings
 # For development docker-compose file overrides ARGS
 ARG BUNDLE_WITHOUT="development:test"
-ENV BUNDLE_WITHOUT ${BUNDLE_WITHOUT}
+ENV BUNDLE_WITHOUT=${BUNDLE_WITHOUT}
 ENV BUNDLER_VERSION=2.5.11
 
 ARG RAILS_SERVE_STATIC_FILES=true
-ENV RAILS_SERVE_STATIC_FILES ${RAILS_SERVE_STATIC_FILES}
+ENV RAILS_SERVE_STATIC_FILES=${RAILS_SERVE_STATIC_FILES}
 
 ARG RAILS_ENV=production
-ENV RAILS_ENV ${RAILS_ENV}
+ENV RAILS_ENV=${RAILS_ENV}
 
 ARG NODE_OPTIONS="--max-old-space-size=4096 --openssl-legacy-provider"
-ENV NODE_OPTIONS ${NODE_OPTIONS}
+ENV NODE_OPTIONS=${NODE_OPTIONS}
 
 ENV BUNDLE_PATH="/gems"
 
@@ -35,7 +35,7 @@ RUN apk update && apk add --no-cache \
   curl \
   xz \
   && mkdir -p /var/app \
-  && gem install bundler
+  && gem install bundler -v "${BUNDLER_VERSION}"
 
 COPY --from=node /usr/local/bin/node /usr/local/bin/
 COPY --from=node /usr/local/lib/node_modules /usr/local/lib/node_modules
@@ -57,6 +57,10 @@ ENV PATH="$PNPM_HOME:$PATH"
 WORKDIR /app
 
 COPY Gemfile Gemfile.lock ./
+# CI-only path-gem referenced by Gemfile.lock. Must be present at bundle install
+# time even when the :extension_consumer_stub group is excluded — Bundler still
+# resolves the lockfile entry and fails on missing path. See EVO-1378.
+COPY spec/support/extension_consumer_stub spec/support/extension_consumer_stub
 
 # adding xz as nokogiri was failing to build libxml
 # https://github.com/evolution/evolution/issues/4045
@@ -65,7 +69,7 @@ RUN bundle config set --local force_ruby_platform true
 
 # Do not install development or test gems in production
 RUN if [ "$RAILS_ENV" = "production" ]; then \
-  bundle config set without 'development test'; bundle install -j 4 -r 3; \
+  bundle config set without 'development test extension_consumer_stub'; bundle install -j 4 -r 3; \
   else bundle install -j 4 -r 3; \
   fi
 
@@ -79,8 +83,13 @@ COPY . /app
 RUN mkdir -p /app/log
 
 # clean up non-production files
+# Preserve spec/support/extension_consumer_stub/ because Gemfile.lock references
+# that path (CI-only :extension_consumer_stub group, EVO-1378). Bundler validates
+# the path at runtime startup even when the group is excluded via BUNDLE_WITHOUT.
 RUN if [ "$RAILS_ENV" = "production" ]; then \
-  rm -rf spec node_modules tmp/cache; \
+  find spec -mindepth 1 -maxdepth 1 ! -name support -exec rm -rf {} + && \
+  find spec/support -mindepth 1 -maxdepth 1 ! -name extension_consumer_stub -exec rm -rf {} + && \
+  rm -rf node_modules tmp/cache; \
   fi
 
 # Write git SHA to file (passed as build arg, falls back to "unknown")
@@ -102,20 +111,20 @@ ENV NODE_VERSION=${NODE_VERSION}
 ENV PNPM_VERSION=${PNPM_VERSION}
 
 ARG BUNDLE_WITHOUT="development:test"
-ENV BUNDLE_WITHOUT ${BUNDLE_WITHOUT}
+ENV BUNDLE_WITHOUT=${BUNDLE_WITHOUT}
 ENV BUNDLER_VERSION=2.5.11
 
 ARG EXECJS_RUNTIME="Disabled"
-ENV EXECJS_RUNTIME ${EXECJS_RUNTIME}
+ENV EXECJS_RUNTIME=${EXECJS_RUNTIME}
 
 ARG RAILS_SERVE_STATIC_FILES=true
-ENV RAILS_SERVE_STATIC_FILES ${RAILS_SERVE_STATIC_FILES}
+ENV RAILS_SERVE_STATIC_FILES=${RAILS_SERVE_STATIC_FILES}
 
 ARG BUNDLE_FORCE_RUBY_PLATFORM=1
-ENV BUNDLE_FORCE_RUBY_PLATFORM ${BUNDLE_FORCE_RUBY_PLATFORM}
+ENV BUNDLE_FORCE_RUBY_PLATFORM=${BUNDLE_FORCE_RUBY_PLATFORM}
 
 ARG RAILS_ENV=production
-ENV RAILS_ENV ${RAILS_ENV}
+ENV RAILS_ENV=${RAILS_ENV}
 ENV BUNDLE_PATH="/gems"
 
 RUN apk update && apk add --no-cache \
@@ -128,7 +137,7 @@ RUN apk update && apk add --no-cache \
   vips \
   dos2unix \
   ffmpeg \
-  && gem install bundler
+  && gem install bundler -v "${BUNDLER_VERSION}"
 
 COPY --from=node /usr/local/bin/node /usr/local/bin/
 COPY --from=node /usr/local/lib/node_modules /usr/local/lib/node_modules
@@ -147,10 +156,22 @@ COPY --from=pre-builder /app /app
 # Copy .git_sha file from pre-builder stage
 COPY --from=pre-builder /app/.git_sha /app/.git_sha
 
-# Fix line endings and ensure entrypoint scripts have proper permissions
-RUN dos2unix /app/docker/entrypoints/*.sh \
-  && chmod +x /app/docker/entrypoints/*.sh
+# Fix line endings and ensure entrypoint/bin scripts have proper permissions.
+# Includes /app/bin/* because a Windows checkout leaves CRLF in the bin/rails
+# shebang (#!/usr/bin/env ruby\r) -> "env: can't execute 'ruby'" on `rails runner`.
+# dos2unix skips binary files automatically, so it is safe on bin/*.
+RUN dos2unix /app/docker/entrypoints/*.sh /app/bin/* \
+  && chmod +x /app/docker/entrypoints/*.sh /app/bin/*
 
 WORKDIR /app
 
 EXPOSE 3000
+
+# EVO-1999: the image boots via rails.sh, which prepares the database on boot
+# (RUN_MIGRATIONS gate, default true) — so any orchestrator that ignores the
+# compose command/entrypoint (CapRover) still migrates and brings up an
+# up-to-date schema. The default CMD starts the server; the sidekiq service
+# overrides the command (and must set RUN_MIGRATIONS=false to avoid preparing
+# the database twice).
+ENTRYPOINT ["/app/docker/entrypoints/rails.sh"]
+CMD ["bundle", "exec", "rails", "server", "-b", "0.0.0.0", "-p", "3000"]

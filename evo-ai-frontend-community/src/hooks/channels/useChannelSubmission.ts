@@ -27,6 +27,7 @@ import NotificameService from '@/services/channels/notificameService';
 import { ChannelType, FormData } from '@/hooks/channels/useChannelForm';
 import { useChannelValidation } from '@/hooks/channels/useChannelValidation';
 import { useAppDataStore } from '@/store/appDataStore';
+import { apiErrorMessage } from '@/utils/apiHelpers';
 
 export const useChannelSubmission = (form?: FormData) => {
   const navigate = useNavigate();
@@ -58,7 +59,7 @@ export const useChannelSubmission = (form?: FormData) => {
     };
   }, [cleanupPendingInstance]);
 
-  // Reset health check quando a URL da API mudar
+  // Reset the health check whenever the API URL changes
   useEffect(() => {
     if (form && form.api_url) {
       setHealthCheckPassed(null);
@@ -147,7 +148,7 @@ export const useChannelSubmission = (form?: FormData) => {
           result = { success: true, message: 'Conexão verificada com sucesso' };
           setHealthCheckPassed(true);
         } catch (error) {
-          result = { success: false, error: (error as Error).message };
+          result = { success: false, error: apiErrorMessage(error) || (error as Error).message };
           setHealthCheckPassed(false);
         }
       } else if (selectedProvider.id === 'evolution_go') {
@@ -201,7 +202,7 @@ export const useChannelSubmission = (form?: FormData) => {
           result = { success: true, message: 'Conexão verificada com sucesso' };
           setHealthCheckPassed(true);
         } catch (error) {
-          result = { success: false, error: (error as Error).message };
+          result = { success: false, error: apiErrorMessage(error) || (error as Error).message };
           setHealthCheckPassed(false);
         }
       } else if (selectedProvider.id === 'twilio' && selectedChannel.type === 'whatsapp') {
@@ -216,18 +217,17 @@ export const useChannelSubmission = (form?: FormData) => {
               : undefined,
           });
         } catch (error) {
-          result = { success: false, error: (error as Error).message };
+          result = { success: false, error: apiErrorMessage(error) || (error as Error).message };
         }
       } else if (selectedProvider.id === 'notificame') {
         try {
           result = await NotificameService.verifyConnection({
-            api_url: getStr(form, 'api_url'),
-            admin_token: getStr(form, 'admin_token'),
-            instance_id: getStr(form, 'instance_id'),
+            api_token: getStr(form, 'api_token'),
+            channel_id: getStr(form, 'channel_id'),
             phone_number: getStr(form, 'phone_number'),
           });
         } catch (error) {
-          result = { success: false, error: (error as Error).message };
+          result = { success: false, error: apiErrorMessage(error) || (error as Error).message };
         }
       }
 
@@ -239,7 +239,9 @@ export const useChannelSubmission = (form?: FormData) => {
         }
       }
     } catch (error) {
-      toast.error((error as Error).message || 'Erro no teste de conexão');
+      toast.error(
+        apiErrorMessage(error) || (error as Error).message || 'Erro no teste de conexão',
+      );
     } finally {
       setIsTesting(false);
     }
@@ -250,6 +252,10 @@ export const useChannelSubmission = (form?: FormData) => {
     selectedProvider: ProviderType | null,
     form: FormData,
     config: any,
+    // When provided, called after a successful create instead of the internal
+    // navigation to /channels/:id/settings (which does not resolve when
+    // NewChannel is mounted embedded, without <Routes> capturing the route).
+    onCreated?: (createdId?: string) => void,
   ) => {
     if (!selectedChannel) return;
 
@@ -420,6 +426,7 @@ export const useChannelSubmission = (form?: FormData) => {
                 provider_config: {
                   api_key: getStr(form, 'api_key'),
                   phone_number_id: getStr(form, 'phone_number_id'),
+                  business_account_id: getStr(form, 'business_account_id'),
                   waba_id: getStr(form, 'waba_id'),
                 },
               },
@@ -437,7 +444,9 @@ export const useChannelSubmission = (form?: FormData) => {
                   : undefined,
               });
             } catch (error) {
-              throw new Error((error as Error).message || 'Falha na verificação do Twilio');
+              throw new Error(
+                apiErrorMessage(error) || (error as Error).message || 'Falha na verificação do Twilio',
+              );
             }
             payload = {
               name: getStr(form, 'name') || 'WhatsApp Twilio',
@@ -458,13 +467,16 @@ export const useChannelSubmission = (form?: FormData) => {
             // verify connection first
             try {
               await NotificameService.verifyConnection({
-                api_url: getStr(form, 'api_url'),
-                admin_token: getStr(form, 'admin_token'),
-                instance_id: getStr(form, 'instance_id'),
+                api_token: getStr(form, 'api_token'),
+                channel_id: getStr(form, 'channel_id'),
                 phone_number: getStr(form, 'phone_number'),
               });
             } catch (error) {
-              throw new Error((error as Error).message || 'Falha na verificação do Notificame');
+              throw new Error(
+                apiErrorMessage(error) ||
+                  (error as Error).message ||
+                  'Falha na verificação do Notificame',
+              );
             }
             payload = {
               name: getStr(form, 'name') || 'WhatsApp Notificame',
@@ -702,10 +714,14 @@ export const useChannelSubmission = (form?: FormData) => {
       }
 
       toast.success('Canal criado com sucesso');
-      navigate(`/channels/${createdId}/settings`);
+      if (onCreated) {
+        onCreated(createdId);
+      } else {
+        navigate(`/channels/${createdId}/settings`);
+      }
     } catch (e: unknown) {
       const err = e as Error;
-      toast.error(err?.message || 'Falha ao criar canal');
+      toast.error(apiErrorMessage(e) || err?.message || 'Falha ao criar canal');
     } finally {
       setIsSubmitting(false);
     }

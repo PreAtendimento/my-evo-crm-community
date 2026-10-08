@@ -39,7 +39,10 @@
         "description": "Sei sicuro di voler eliminare questo messaggio? Questa azione non può essere annullata e il messaggio sarà permanentemente rimosso dalla conversazione.",
         "cancel": "Annulla",
         "confirm": "Elimina messaggio"
-      }
+      },
+      "deletedPlaceholder": "Questo messaggio è stato eliminato",
+      "revokedByContact": "Eliminato dal contatto",
+      "revokeCrmOnly": "rimossa solo nel CRM"
     },
     "moderation": {
       "banner": {
@@ -60,17 +63,24 @@
     "messageFile": {
       "fileFallback": "file",
       "unknownSize": "Dimensione sconosciuta",
-      "fileFallbackTitle": "File"
+      "fileFallbackTitle": "File",
+      "downloadFallbackOpenedInNewTab": "File aperto in una nuova scheda",
+      "downloadFallbackReason": {
+        "serverError": "Il server ha restituito {{status}} — impossibile scaricare direttamente.",
+        "network": "Errore di rete o blocco CORS — impossibile scaricare direttamente."
+      }
     },
     "messageImage": {
       "downloadStarted": "Download avviato",
       "imageFallback": "Immagine",
-      "imageZoomedAlt": "Immagine ingrandita"
+      "imageZoomedAlt": "Immagine ingrandita",
+      "loadError": "Immagine non disponibile"
     },
     "messageList": {
       "loadingConversation": "Caricamento conversazione...",
       "loadingPrevious": "Caricamento messaggi precedenti...",
-      "conversationStart": "Inizio della conversazione"
+      "conversationStart": "Inizio della conversazione",
+      "newMessage": "Nuovo messaggio"
     },
     "messageLocation": {
       "sharedLocation": "Posizione condivisa",
@@ -81,11 +91,22 @@
       "statusUnavailableDescription": "Il messaggio è stato inviato, ma non siamo riusciti a confermare lo stato di consegna.",
       "checkChannelConfig": "Verifica la configurazione del canale",
       "webhookIssue": "Il webhook potrebbe essere obsoleto o inattivo.",
+      "messageNotSent": "Il messaggio non è stato inviato",
       "deliveryStatusUnavailable": "Stato di consegna non disponibile - Clicca per maggiori dettagli",
       "statusUnavailableText": "Stato non disponibile",
-      "retryInDevelopment": "Funzionalità di nuovo tentativo in sviluppo",
-      "sendFailed": "Invio fallito - Clicca per riprovare",
+      "sendFailedText": "Invio fallito",
+      "sendFailed": "Invio fallito - Clicca per vedere il motivo",
       "tryAgain": "Riprova"
+    },
+    "replyPreview": {
+      "imageAttachment": "📷 Immagine",
+      "audioAttachment": "🎵 Audio",
+      "videoAttachment": "🎥 Video",
+      "fileAttachment": "📎 File",
+      "locationAttachment": "📍 Posizione",
+      "noContent": "Messaggio senza contenuto",
+      "userFallback": "Utente",
+      "previousMessage": "Messaggio precedente"
     }
   },
   "assignment": {
@@ -211,7 +232,11 @@
     "noOptions": "Nessuna opzione disponibile",
     "cancel": "Annulla",
     "applying": "Applicazione...",
-    "apply": "Applica"
+    "apply": "Applica",
+    "createLabel": "Crea etichetta: \"{{name}}\"",
+    "creating": "Creazione...",
+    "newLabel": "Crea nuova etichetta",
+    "createLabelError": "Impossibile creare l'etichetta. Riprova."
   },
   "audioRecorder": {
     "notSupported": "Registrazione audio non supportata in questo browser",
@@ -244,6 +269,10 @@
       "linkText": "Restrizioni della finestra di messaggistica di 24 ore",
       "zapiDisconnected": "WhatsApp disconnesso. Connetti il numero per inviare messaggi."
     },
+    "noteBanner": {
+      "title": "Nota dell'assistenza",
+      "hide": "Nascondi"
+    },
     "errors": {
       "loadMessages": "Errore nel caricamento dei messaggi",
       "tryAgain": "Riprova"
@@ -254,7 +283,7 @@
       "markAsRead": "Segna come letta",
       "markAsUnread": "Segna come non letta",
       "markAsOpen": "Segna come aperta",
-      "markAsResolved": "Segna come risolta",
+      "markAsResolved": "Segna come completata",
       "markAsPending": "Segna come in sospeso",
       "pauseConversation": "Metti in pausa la conversazione",
       "priorityUrgent": "Priorità Urgente",
@@ -265,20 +294,61 @@
       "assignAgent": "Assegna Agente",
       "assignTeam": "Assegna Team",
       "assignTag": "Assegna Etichetta",
-      "deleteConversation": "Elimina conversazione"
+      "deleteConversation": "Elimina conversazione",
+      "bulkStatusSuccess": "{{count}} conversazione/i aggiornata/e",
+      "bulkStatusPartialSuccess": "{{success}} aggiornata/e, {{failed}} fallita/e",
+      "bulkStatusError": "Errore nell'aggiornamento delle conversazioni",
+      "bulkStatusNoPermission": "Non hai il permesso di aggiornare le conversazioni"
     },
     "contactNoName": "Contatto senza nome",
     "status": "Stato:",
+    "statusButton": {
+      "open": "Apri",
+      "complete": "Completa",
+      "reopen": "Riapri"
+    },
+    "statusPill": {
+      "open": "Assistenza in Corso",
+      "resolved": "Assistenza Completata",
+      "pending": "In Attesa",
+      "snoozed": "Conversazione in Pausa"
+    },
     "openConversation": "Apri Conversazione",
-    "closeConversation": "Chiudi conversazione"
+    "closeConversation": "Chiudi conversazione",
+    "backToConversations": "Torna alle conversazioni",
+    "phoneNumber": "Numero di telefono",
+    "openContactPanel": "Apri dettagli contatto",
+    "closeContactPanel": "Chiudi dettagli contatto"
   },
   "chatSidebar": {
+    "segments": {
+      "ariaLabel": "Viste delle conversazioni",
+      "open": "Aperte",
+      "pending": "In sospeso",
+      "resolved": "Completate",
+      "unread": "Non lette",
+      "unanswered": "Senza risposta",
+      "groups": "Gruppi"
+    },
     "searchPlaceholder": "Cerca conversazioni...",
+    "resizeHandle": "Ridimensiona elenco conversazioni",
     "conversation": "conversazione",
     "conversations": "conversazioni",
+    "selectedCount_one": "{{count}} conversazione selezionata",
+    "selectedCount_other": "{{count}} conversazioni selezionate",
+    "selectConversation": "Seleziona conversazione",
     "filter": "filtro",
     "filters": "filtri",
     "filtersButton": "Filtri",
+    "select": "Seleziona",
+    "doneSelection": "Fine",
+    "bulkActions": "Azioni in blocco",
+    "bulkDeleteDescription": "Vuoi davvero eliminare {{count}} conversazione/i? L'azione non può essere annullata.",
+    "undo": "Annulla",
+    "bulkApplied": "Applicato a {{count}} conversazione/i",
+    "bulkDeleted": "{{count}} conversazione/i eliminata/e",
+    "bulkFailed": "{{count}} conversazione/i non riuscite",
+    "advancedFiltersCleared": "Filtri avanzati rimossi — Non lette/Gruppi non si combinano con essi",
     "view": {
       "active": "Attive",
       "archived": "Archiviate"
@@ -300,7 +370,8 @@
       "noMessages": "Nessun messaggio",
       "noContent": "Messaggio senza contenuto"
     },
-    "contactNoName": "Contatto senza nome"
+    "contactNoName": "Contatto senza nome",
+    "phoneNumber": "Numero di telefono"
   },
   "chatTabs": {
     "chat": "Chat"
@@ -340,9 +411,13 @@
     },
     "contactHeader": {
       "contactNoName": "Contatto senza nome",
-      "online": "Online"
+      "online": "Online",
+      "away": "Assente",
+      "busy": "Occupato",
+      "offline": "Offline"
     },
     "contactDetails": {
+      "noContact": "Nessun contatto caricato.",
       "actions": {
         "edit": "Modifica",
         "updateSuccess": "Contatto aggiornato con successo",
@@ -364,13 +439,30 @@
         "lastActivity": "Ultima attività"
       },
       "notInformed": "Non informato",
-      "copiedToClipboard": "Copiato negli appunti"
+      "copiedToClipboard": "Copiato negli appunti",
+      "maskedValueCopied": "Valore mascherato copiato — chiedi accesso all’admin se ti serve il dato completo",
+      "dataProtectedTooltip": "Dati protetti dalla politica dell’account"
+    },
+    "customAttributes": {
+      "noAttributes": "Nessun attributo registrato.",
+      "updateSuccess": "Attributi aggiornati con successo",
+      "updateError": "Errore nell'aggiornamento degli attributi",
+      "refreshError": "Attributi salvati, ma ricaricamento dei dati del contatto fallito",
+      "yes": "Sì",
+      "no": "No"
+    },
+    "conversationAttributes": {
+      "noAttributes": "Nessun attributo registrato.",
+      "updateSuccess": "Attributi della conversazione aggiornati",
+      "updateError": "Errore nell'aggiornamento degli attributi della conversazione",
+      "yes": "Sì",
+      "no": "No"
     },
     "conversationActions": {
       "status": {
         "title": "Stato della Conversazione",
         "open": "Aperta",
-        "resolved": "Risolta",
+        "resolved": "Completata",
         "pending": "In sospeso",
         "snoozed": "In pausa",
         "changed": "Stato cambiato in: {{status}}",
@@ -414,40 +506,6 @@
         "execute": "Eseguire Macro"
       }
     },
-    "pipeline": {
-      "loading": "Errore nel caricamento dei dati della pipeline",
-      "noPipelines": "Nessuna pipeline configurata",
-      "current": "Pipeline Attuale",
-      "label": "Pipeline",
-      "selectPipeline": "Seleziona una pipeline",
-      "selectStage": "Seleziona uno stadio",
-      "stage": "Stadio",
-      "saving": "Salvataggio...",
-      "save": "Salva",
-      "saveSuccess": "Pipeline aggiornata con successo",
-      "saveError": "Errore nell'aggiornamento della pipeline",
-      "selectError": "Seleziona una pipeline e uno stadio",
-      "removeSuccess": "Conversazione rimossa dalla pipeline",
-      "removeError": "Errore nella rimozione dalla pipeline",
-      "dialogs": {
-        "update": {
-          "title": "Aggiorna Pipeline",
-          "description": "Sei sicuro di voler spostare questa conversazione a {{pipelineName}} nello stadio {{stageName}}?",
-          "confirm": "Aggiorna"
-        },
-        "add": {
-          "title": "Aggiungi alla Pipeline",
-          "description": "Sei sicuro di voler aggiungere questa conversazione alla pipeline {{pipelineName}} nello stadio {{stageName}}?",
-          "confirm": "Aggiungi"
-        },
-        "remove": {
-          "title": "Rimuovi dalla Pipeline",
-          "description": "Sei sicuro di voler rimuovere questa conversazione dalla pipeline {{pipelineName}}? Questa azione non può essere annullata.",
-          "cancel": "Annulla",
-          "confirm": "Rimuovi"
-        }
-      }
-    },
     "filters": {
       "assignee": {
         "title": "Assegnazione Conversazione",
@@ -484,7 +542,7 @@
           "all": "Tutte",
           "open": "Aperte",
           "pending": "In sospeso",
-          "resolved": "Risolte",
+          "resolved": "Completate",
           "snoozed": "In pausa"
         },
         "clearFilters": "Cancella filtri"
@@ -537,11 +595,12 @@
         "loadConversation": "Errore nel caricamento della conversazione",
         "conversationNotFound": "Conversazione non trovata",
         "updateStatus": "Errore nell'aggiornamento dello stato della conversazione",
+        "returnToBot": "Errore nella restituzione della conversazione al bot",
         "updatePriority": "Errore nell'aggiornamento della priorità della conversazione",
         "deleteConversation": "Errore nell'eliminazione della conversazione",
         "markAsRead": "Errore nel marcare come letta",
         "markAsUnread": "Errore nel marcare come non letta",
-        "markAsResolved": "Errore nel marcare come risolta",
+        "markAsResolved": "Errore nel marcare come completata",
         "markAsPending": "Errore nel marcare come in sospeso",
         "assignAgent": "Errore nell'assegnazione dell'Agente",
         "assignTeam": "Errore nell'assegnazione del team",
@@ -549,11 +608,12 @@
       },
       "success": {
         "statusChanged": "Stato cambiato in: {{status}}",
+        "returnedToBot": "Conversazione restituita al bot",
         "priorityChanged": "Priorità cambiata in: {{priority}}",
         "deleted": "Conversazione eliminata con successo",
         "markedAsRead": "Conversazione marcata come letta",
         "markedAsUnread": "Conversazione marcata come non letta",
-        "markedAsResolved": "Conversazione marcata come risolta",
+        "markedAsResolved": "Conversazione marcata come completata",
         "markedAsPending": "Conversazione marcata come in sospeso",
         "agentAssigned": "Agente assegnato con successo",
         "agentRemoved": "Agente rimosso con successo",
@@ -563,7 +623,7 @@
       },
       "statusNames": {
         "open": "Aperta",
-        "resolved": "Risolta",
+        "resolved": "Completata",
         "pending": "In sospeso",
         "snoozed": "In pausa"
       },
@@ -608,9 +668,21 @@
     }
   },
   "messageInput": {
-    "pendingPlaceholder": "Questa conversazione è in sospeso. È possibile inviare solo note private.",
+    "cannedResponse": {
+      "manualAttachmentsRemoved": "Gli allegati manuali sono stati rimossi: la risposta rapida include già un contenuto multimediale.",
+      "mediaBanner": "Questa risposta rapida include {{count}} file multimediali. Verranno inviati insieme al messaggio.",
+      "mediaBlocksManualUpload": "Questa risposta rapida include già un contenuto multimediale; rimuovilo per allegare un altro file.",
+      "removeMediaAriaLabel": "Rimuovi il contenuto multimediale della risposta rapida"
+    },
+    "pendingPlaceholder": "Clicca su Apri per rispondere",
     "restrictedPlaceholder": "Impossibile inviare messaggi a causa della finestra di messaggistica di 24 ore",
     "defaultPlaceholder": "Digita il tuo messaggio...",
+    "noteComposer": {
+      "helper": "Salva note importanti sulla conversazione in modo che altri utenti possano vederle in futuro.",
+      "placeholder": "Aggiungi una nota alla conversazione...",
+      "save": "Salva",
+      "saving": "Salvataggio..."
+    },
     "emojiPicker": {
       "searchPlaceholder": "Cerca emoji..."
     },
@@ -648,7 +720,8 @@
       "sendError": "Errore nell'invio dell'audio",
       "converting": "Conversione audio in corso...",
       "conversionWarning": "Avviso di conversione",
-      "conversionWarningDescription": "Impossibile convertire l'audio in OGG/Opus. Invio nel formato originale."
+      "conversionWarningDescription": "Impossibile convertire l'audio in OGG/Opus. Invio nel formato originale.",
+      "recordTooltip": "Registra audio"
     },
     "templates": {
       "inDevelopment": "Modelli di messaggio in sviluppo 📝"
@@ -659,7 +732,11 @@
       "asPrivateNote": "(come nota privata)",
       "fileAttachment": "📎 {{fileType}}",
       "fileFallback": "File",
-      "noContent": "Messaggio senza contenuto"
+      "noContent": "Messaggio senza contenuto",
+      "imageAttachment": "📷 Immagine",
+      "videoAttachment": "🎥 Video",
+      "audioAttachment": "🎵 Audio",
+      "locationAttachment": "📍 Posizione"
     },
     "signature": {
       "enable": "Abilita firma",
@@ -667,8 +744,38 @@
     },
     "placeholders": {
       "default": "Digita il tuo messaggio... (digita / per risposte pronte)",
-      "pendingNote": "Digita la tua nota privata (conversazione in sospeso)...",
+      "pendingNote": "Clicca su Apri per rispondere",
       "privateNote": "Digita la tua nota privata... (digita / per risposte pronte)"
+    },
+    "composerMenu": {
+      "tooltip": "Altre opzioni",
+      "quickReplies": "Risposte Rapide",
+      "documents": "Documenti",
+      "media": "Foto e Video",
+      "conversationNote": "Note della Conversazione",
+      "schedule": "Pianifica Messaggio",
+      "scheduleDisabledHint": "Scrivi un messaggio per poterlo pianificare"
+    },
+    "macros": {
+      "tooltip": "Macro",
+      "subtitle": "Esegui automazioni"
+    },
+    "schedule": {
+      "title": "Pianifica messaggio",
+      "messagePreview": "Messaggio",
+      "emptyMessage": "Nessun messaggio digitato da pianificare.",
+      "dateTime": "Data e ora",
+      "note": "Osservazione",
+      "notePlaceholder": "Nota interna (opzionale)",
+      "cancel": "Annulla",
+      "save": "Pianifica",
+      "success": "Messaggio pianificato con successo",
+      "error": "Errore durante la pianificazione del messaggio",
+      "errors": {
+        "dateTimeRequired": "Data e ora sono obbligatorie",
+        "dateTimeFuture": "Data e ora devono essere nel futuro",
+        "messageRequired": "Digita un messaggio prima di pianificare"
+      }
     }
   },
   "conversationsFilter": {
@@ -697,13 +804,18 @@
       "created_at": "Data di Creazione",
       "last_activity_at": "Ultima Attività",
       "priority": "Priorità",
-      "pipeline_id": "Pipeline"
+      "pipeline_id": "Pipeline",
+      "assignee_id": "Utenti"
+    },
+    "popover": {
+      "clearAll": "Cancella tutto",
+      "noOptions": "Nessuna opzione disponibile"
     },
     "options": {
       "status": {
         "all": "Tutti",
         "open": "Aperto",
-        "resolved": "Risolto",
+        "resolved": "Completato",
         "pending": "In attesa",
         "snoozed": "In pausa"
       },
@@ -744,7 +856,7 @@
       "description": "In attesa di risposta del cliente"
     },
     "resolved": {
-      "label": "Risolta",
+      "label": "Completata",
       "description": "Conversazione completata con successo"
     },
     "snoozed": {
@@ -768,8 +880,9 @@
     "markAsUnread": "Segna come non letta",
     "status": "Stato",
     "markAsOpen": "Segna come aperta",
-    "markAsResolved": "Segna come risolta",
+    "markAsResolved": "Segna come completata",
     "markAsPending": "Segna come in sospeso",
+    "returnToBot": "Restituire al bot",
     "pauseConversation": "Metti in pausa la conversazione",
     "priority": "Priorità",
     "priorityLabels": {
@@ -852,6 +965,15 @@
         "language": "Lingua",
         "templateBody": "Contenuto del Modello",
         "category": "Categoria"
+      },
+      "status": {
+        "approved": "Approvato",
+        "pending": "In attesa di approvazione",
+        "rejected": "Rifiutato",
+        "paused": "In pausa",
+        "inactive": "Inattivo",
+        "unknown": "Stato sconosciuto",
+        "disabledTooltip": "I modelli devono essere approvati da Meta prima di poter essere inviati. Apri le impostazioni dell'inbox per sincronizzare."
       }
     },
     "parser": {
@@ -869,5 +991,27 @@
     "success": {
       "sent": "Modello inviato con successo!"
     }
+  },
+  "pipeline": {
+    "section": "Pipeline",
+    "addTo": "Aggiungi al pipeline",
+    "removeFrom": "Rimuovi dal pipeline",
+    "loading": "Caricamento pipeline...",
+    "noPipelines": "Nessun pipeline disponibile",
+    "loadError": "Errore nel caricamento. Clicca per riprovare.",
+    "addSuccess": "Aggiunto al pipeline",
+    "moveSuccess": "Spostato nella fase",
+    "removeSuccess": "Rimosso dal pipeline",
+    "addError": "Errore nell'aggiunta al pipeline",
+    "moveError": "Errore nello spostamento nella fase",
+    "removeError": "Errore nella rimozione dal pipeline"
+  },
+  "unansweredBadge": {
+    "menuAriaLabel_one": "{{count}} conversazione in attesa di una tua risposta",
+    "menuAriaLabel_other": "{{count}} conversazioni in attesa di una tua risposta"
+  },
+  "unreadBadge": {
+    "ariaLabel_one": "{{count}} messaggio non letto",
+    "ariaLabel_other": "{{count}} messaggi non letti"
   }
 }

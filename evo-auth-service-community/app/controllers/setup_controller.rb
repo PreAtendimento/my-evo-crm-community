@@ -9,20 +9,43 @@ class SetupController < ActionController::Base
 
   # GET /setup/status
   # Returns current license state and masked api_key when active.
+  # Reports 'inactive' whenever no admin user exists so a DB wipe or
+  # partial-bootstrap install always lands the user on /setup, even if
+  # licensing state disagrees.
   def status
     ctx = Licensing::Runtime.context
 
     unless ctx
-      render json: { status: 'inactive', instance_id: nil }
+      render json: { status: 'inactive', instance_id: nil,
+                     extra_setup_steps: EvoExtensionPoints::ExtraSetupSteps.enabled? }
       return
     end
 
+    # `status` drives the frontend's Setup wizard routing: it must reflect
+    # whether the *instance is bootstrapped*, not whether the licensing
+    # handshake succeeded. A licensing outage cannot trap users on /setup.
+    # The separate `licensed` field exposes the license state for any UI
+    # that wants to surface it.
+    #
+    # Workers can activate the license in a different process (SetupJob);
+    # rehydrate from runtime_configs so the web process sees the new state
+    # without needing a restart.
+    Licensing::Runtime.rehydrate_if_inactive
+
+    bootstrapped = User.exists?
+    licensed     = ctx.active?
+
     resp = {
-      status: ctx.active? ? 'active' : 'inactive',
-      instance_id: resolve_instance_id(ctx)
+      status:      bootstrapped ? 'active' : 'inactive',
+      licensed:    licensed,
+      instance_id: resolve_instance_id(ctx),
+      # Tells the Setup wizard whether a registered consumer contributes extra
+      # steps after the account step. Community default is false → single-step
+      # wizard. Backed by the :extra_setup_steps extension point.
+      extra_setup_steps: EvoExtensionPoints::ExtraSetupSteps.enabled?
     }
 
-    if ctx.active?
+    if licensed
       key = ctx.api_key
       resp[:api_key] = "#{key[0..7]}...#{key[-4..]}" if key.present?
     end
@@ -46,8 +69,11 @@ class SetupController < ActionController::Base
       return
     end
 
+    # Only reuse the cached URL for the redirect_uri it was minted with:
+    # another one strands the OAuth at the portal with the key never exchanged.
+    requested_redirect = params[:redirect_uri].presence
     existing_url = ctx.reg_url
-    if existing_url.present?
+    if existing_url.present? && ctx.reg_redirect_uri == requested_redirect
       render json: { status: 'pending', register_url: existing_url }
       return
     end
@@ -57,16 +83,19 @@ class SetupController < ActionController::Base
         instance_id:  resolve_instance_id(ctx),
         tier:         ctx.tier,
         version:      ctx.version,
-        redirect_uri: params[:redirect_uri]
+        redirect_uri: requested_redirect
       )
 
-      ctx.reg_url   = result['register_url']
-      ctx.reg_token = result['token']
+      ctx.reg_url          = result['register_url']
+      ctx.reg_token        = result['token']
+      ctx.reg_redirect_uri = requested_redirect
 
       render json: { status: 'pending', register_url: result['register_url'] }
     rescue Licensing::Transport::NetworkError, Licensing::Transport::ResponseError => e
-      render json: { error: 'Failed to contact licensing server', details: e.message },
-             status: :bad_gateway
+      # Fail open: a licensing outage must never block the installation.
+      # The frontend can prossegue e o heartbeat tenta reativar depois.
+      Rails.logger.warn "[Setup] Registration unreachable: #{e.message}"
+      render json: { status: 'degraded', message: 'Licensing server temporarily unreachable — continuing without activation' }
     end
   end
 
@@ -110,15 +139,20 @@ class SetupController < ActionController::Base
       instance_id = resolve_instance_id(ctx)
       Licensing::Store.new.save_runtime_data(api_key: api_key, tier: tier, customer_id: customer_id)
       ctx.activate!(api_key: api_key, instance_id: instance_id)
-      ctx.reg_url   = nil
-      ctx.reg_token = nil
+      ctx.reg_url          = nil
+      ctx.reg_token        = nil
+      ctx.reg_redirect_uri = nil
 
-      Licensing::HeartbeatJob.set(wait: Licensing::Heartbeat::INTERVAL).perform_later
+      Licensing::Heartbeat.schedule!
+
+      enqueue_pending_onboarding_pushes
 
       render json: { status: 'active', message: 'Setup activated successfully!' }
     rescue Licensing::Transport::NetworkError, Licensing::Transport::ResponseError => e
-      render json: { error: 'Failed to contact licensing server', details: e.message },
-             status: :bad_gateway
+      # Fail open: licensing outage must not trap the user on the activation step.
+      # The heartbeat retry path will reactivate once the server is reachable.
+      Rails.logger.warn "[Setup] Activation unreachable: #{e.message}"
+      render json: { status: 'degraded', message: 'Licensing server temporarily unreachable — continuing without activation' }
     end
   end
 
@@ -138,8 +172,24 @@ class SetupController < ActionController::Base
       last_name:  bp[:last_name],
       email:      bp[:email],
       password:   bp[:password],
-      client_ip:  request.remote_ip
+      client_ip:  request.remote_ip,
+      extension_payload: extension_payload_param
     )
+
+    # Still 201 on both paths: the admin WAS created and the install does not roll
+    # back. Only the body changes, so a consumer that ran without finishing stops
+    # being reported as a flat "ok" — same degradation shape as #register/#activate.
+    if result[:provisioning] == EvoExtensionPoints::AfterBootstrap::DEGRADED
+      Rails.logger.warn '[Setup] Bootstrap provisioning incomplete — consumer reported :degraded'
+      render json: {
+        status: 'degraded',
+        message: 'Installation completed, but account provisioning did not finish — ' \
+                 'it retries automatically within ~10 minutes. If it persists, check that the ' \
+                 'enterprise service and its Sidekiq are running.',
+        survey_token: result[:survey_token]
+      }, status: :created
+      return
+    end
 
     render json: { status: 'ok', message: 'Installation completed successfully', survey_token: result[:survey_token] }, status: :created
 
@@ -175,6 +225,7 @@ class SetupController < ActionController::Base
 
     if survey.save
       redis_client.del("survey_token:#{token}")
+      Licensing::PushOnboardingSurveyJob.perform_later(survey.id)
       render json: { status: 'ok' }, status: :ok
     else
       render json: { error: survey.errors.full_messages.to_sentence }, status: :unprocessable_entity
@@ -183,8 +234,32 @@ class SetupController < ActionController::Base
 
   private
 
+  # Scans for setup_survey_responses that have not yet been pushed to the
+  # licensing server and enqueues a job for each. Called right after activation
+  # so a survey saved before the license became active still gets through.
+  def enqueue_pending_onboarding_pushes
+    SetupSurveyResponse.where(onboarding_pushed_at: nil).find_each do |survey|
+      Licensing::PushOnboardingSurveyJob.perform_later(survey.id)
+    end
+  end
+
   def bootstrap_params
     params.permit(:first_name, :last_name, :email, :password, :password_confirmation)
+  end
+
+  # Opaque bag forwarded verbatim to the :after_bootstrap extension point. The
+  # community assigns NO meaning to its contents; a registered consumer (the
+  # enterprise overlay) validates and interprets it. Absent -> {} (no-op hook).
+  #
+  # Only a nested object is meaningful: a scalar or array (or an absent value)
+  # yields {} so this public, unauthenticated endpoint never 500s on a malformed
+  # payload (`"x".to_h`/`[1].to_h` would raise). The community drops it either
+  # way since it assigns the bag no meaning.
+  def extension_payload_param
+    raw = params[:extension_payload]
+    return {} unless raw.respond_to?(:permit!) || raw.is_a?(Hash)
+
+    raw.respond_to?(:permit!) ? raw.permit!.to_h : raw.to_h
   end
 
   def survey_params

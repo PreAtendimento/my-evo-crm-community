@@ -47,7 +47,21 @@
       "validation": {
         "allFields": "Todos os campos são obrigatórios",
         "mismatch": "As senhas não coincidem",
-        "minLength": "A senha deve ter no mínimo 6 caracteres"
+        "minLength": "A senha deve ter no mínimo 8 caracteres"
+      },
+      "errors": {
+        "too_short": "A senha deve ter no mínimo 8 caracteres",
+        "missing_uppercase": "Deve incluir pelo menos uma letra maiúscula (A-Z)",
+        "missing_lowercase": "Deve incluir pelo menos uma letra minúscula (a-z)",
+        "missing_number": "Deve incluir pelo menos um número (0-9)",
+        "missing_special_char": "Deve incluir pelo menos um caractere especial (!@#$...)"
+      },
+      "rules": {
+        "minLength": "Mínimo 8 caracteres",
+        "uppercase": "Pelo menos uma letra maiúscula (A-Z)",
+        "lowercase": "Pelo menos uma letra minúscula (a-z)",
+        "number": "Pelo menos um número (0-9)",
+        "specialChar": "Pelo menos um caractere especial (!@#$...)"
       }
     },
     "accessToken": {
@@ -105,7 +119,8 @@
         "title": "Permissão do Navegador",
         "description": "Permitir notificações push do navegador",
         "granted": "Permissões de notificação concedidas",
-        "denied": "Permissões de notificação negadas"
+        "denied": "Permissões de notificação negadas",
+        "notSupported": "Notificações do navegador não são suportadas"
       },
       "email": {
         "title": "Notificações por Email",
@@ -167,7 +182,8 @@
         "playWhenInactive": "Reproduzir apenas quando a aba estiver inativa",
         "alertUnread": "Alertar se existirem conversas não lidas atribuídas"
       },
-      "updated": "Configurações de áudio atualizadas"
+      "updated": "Configurações de áudio atualizadas",
+      "saveError": "Erro ao salvar configurações de áudio"
     },
     "twoFactor": {
       "title": "Autenticação de Dois Fatores",
@@ -270,7 +286,8 @@
         "enable": "Ativar Autenticação de Dois Fatores",
         "disable": "Desativar Autenticação de Dois Fatores"
       },
-      "info": "A autenticação de dois fatores adiciona uma camada extra de segurança exigindo um código adicional além da sua senha ao fazer login."
+      "info": "A autenticação de dois fatores adiciona uma camada extra de segurança exigindo um código adicional além da sua senha ao fazer login.",
+      "setupIncompleteWarning": "Seus códigos de recuperação de autenticação de dois fatores foram invalidados devido a uma atualização de segurança. Configure a autenticação de dois fatores novamente para restaurar o acesso de recuperação."
     },
     "common": {
       "cancel": "Cancelar",

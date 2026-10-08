@@ -27,31 +27,79 @@
 └──────────────────────────────────────────────────────────────────────────────┘
 """
 
-from typing import Any, Dict, List
+from typing import Any, Container, Dict, List
 from google.adk.tools import FunctionTool
 import requests
 import json
 import urllib.parse
 from src.utils.logger import setup_logger
+from src.utils.tool_naming import sanitize_tool_name, unique_tool_name
+from src.services.adk.custom_tools import CustomToolBuilder, strip_modes_meta
 from src.services.adk.tools import exit_loop
 from src.services.adk.tools import create_text_to_speech_tool
 
 logger = setup_logger(__name__)
 
 
+
+
+def _nexus_credential_ref(config):
+    """Adapts the Nexus dialog's scalar credential_id to the map shape the tool
+    and MCP paths use."""
+    credential_id = config.get("credential_id")
+    return {"nexus_api_key": credential_id} if credential_id else {}
+
+def _apply_vault_refs(tool_config, headers, _db=None):
+    """Resolves headers that point at the credential vault.
+
+    Opens its own short-lived session because neither tool builder carries one.
+    Any failure falls back to the inline headers, so a vault outage degrades to
+    today's behaviour instead of breaking the tool.
+    """
+    credential_refs = tool_config.get("credential_refs") or {}
+    if not credential_refs:
+        return headers
+
+    from src.config.database import SessionLocal
+    from src.services.adk.integration_credentials import (
+        DatabaseCredentialVault,
+        resolve_credential_refs,
+    )
+    from src.utils.crypto import decrypt_api_key
+
+    session = SessionLocal()
+    try:
+        return resolve_credential_refs(
+            headers,
+            credential_refs,
+            vault=DatabaseCredentialVault(session),
+            decrypt=decrypt_api_key,
+        )
+    finally:
+        session.close()
+
 class ToolBuilder:
     def __init__(self):
         self.tools = []
 
-    def _create_http_tool(self, tool_config: Dict[str, Any]) -> FunctionTool:
-        """Create an HTTP tool based on the provided configuration."""
+    def _create_http_tool(
+        self, tool_config: Dict[str, Any], taken_names: Container[str] = ()
+    ) -> FunctionTool:
+        """Create an HTTP tool based on the provided configuration.
+
+        `taken_names` are the function names already registered on this agent, so
+        two tools never answer to the same one.
+        """
         name = tool_config["name"]
         description = tool_config["description"]
         endpoint = tool_config["endpoint"]
         method = tool_config["method"]
         headers = tool_config.get("headers", {})
+        # Second header-injection path: hardening only one of the two would
+        # leave the other echoing inline secrets.
+        headers = _apply_vault_refs(tool_config, headers)
         parameters = tool_config.get("parameters", {}) or {}
-        values = tool_config.get("values", {})
+        values = strip_modes_meta(tool_config.get("values"))
         error_handling = tool_config.get("error_handling", {})
 
         path_params = parameters.get("path_params") or {}
@@ -217,8 +265,14 @@ class ToolBuilder:
         String containing the response in JSON format
         """
 
-        # Defines the function name to be used by the ADK
-        http_tool.__name__ = name
+        # The name the ADK dispatches by, coerced to what the providers accept
+        # (a space/accent in it breaks the whole turn). It has to be set before
+        # FunctionTool reads it — the tool answers to the name captured there.
+        http_tool.__name__ = unique_tool_name(name, taken_names)
+        if http_tool.__name__ != name:
+            logger.info(
+                f"Custom tool '{name}' is exposed to the LLM as '{http_tool.__name__}'"
+            )
 
         return FunctionTool(func=http_tool)
 
@@ -236,15 +290,18 @@ class ToolBuilder:
         """
         self.tools = []
 
-        # First, process custom_tool_ids using CustomToolBuilder
+        # First, process custom_tool_ids using CustomToolBuilder. It is handed the
+        # IDs only: the http_tools below are the same tools expanded from those very
+        # IDs (by get_agent, or by the core service when it saves the agent), so
+        # letting CustomToolBuilder see them too would build each tool twice.
+        built_from_ids = set()
         if agent_config.get("custom_tool_ids") and db:
-            from src.services.adk.custom_tools import CustomToolBuilder
-
             custom_tool_builder = CustomToolBuilder()
             custom_tools_from_ids = custom_tool_builder.build_tools(
-                agent_config, db
+                {"custom_tool_ids": agent_config["custom_tool_ids"]}, db
             )
             self.tools.extend(custom_tools_from_ids)
+            built_from_ids = {tool.func.__name__ for tool in custom_tools_from_ids}
             logger.info(
                 f"Added {len(custom_tools_from_ids)} tools from custom_tool_ids"
             )
@@ -264,20 +321,46 @@ class ToolBuilder:
         ):
             http_tools = agent_config["tools"].get("http_tools", [])
 
+        taken_names = set(built_from_ids)
         for http_tool_config in http_tools:
-            self.tools.append(self._create_http_tool(http_tool_config))
+            # An http_tool that carries the name of a tool already built from its ID
+            # is that same tool, expanded into the config. The ID is the fresher
+            # source — the expanded copy can be a stale snapshot — so skip it. The
+            # comparison is on the sanitized name: that is the one the tool built
+            # from the id ended up answering to.
+            expanded_name = http_tool_config.get("name")
+            if expanded_name and sanitize_tool_name(expanded_name) in built_from_ids:
+                logger.debug(
+                    f"Skipping http_tool '{expanded_name}': "
+                    "already built from custom_tool_ids"
+                )
+                continue
+            http_tool = self._create_http_tool(http_tool_config, taken_names)
+            taken_names.add(http_tool.func.__name__)
+            self.tools.append(http_tool)
 
         # Add exit_loop tool if specified in configuration
         if agent_config.get("enable_exit_loop", False):
             self.tools.append(self._create_exit_loop_tool())
 
         # Process CRM tools if enabled
-        # Enable CRM tools if transfer_to_human, allow_reminders, allow_contact_edit, or allow_pipeline_manipulation is enabled
+        # Enable CRM tools if transfer_to_human, allow_reminders, allow_contact_edit, allow_pipeline_manipulation
+        # or allow_manage_labels is enabled
         transfer_to_human_enabled = agent_config.get("transfer_to_human_enabled", False) or agent_config.get("transfer_to_human", False)
         allow_reminders = agent_config.get("allow_reminders", False)
         allow_contact_edit = agent_config.get("allow_contact_edit", False)
         allow_pipeline_manipulation = agent_config.get("allow_pipeline_manipulation", False)
-        enable_crm_tools = agent_config.get("enable_crm_tools", False) or transfer_to_human_enabled or allow_reminders or allow_contact_edit or allow_pipeline_manipulation
+        allow_manage_labels = agent_config.get("allow_manage_labels", False)
+        allow_product_sales = agent_config.get("allow_product_sales", False)
+        enable_crm_tools = (
+            agent_config.get("enable_crm_tools", False)
+            or transfer_to_human_enabled
+            or allow_reminders
+            or allow_contact_edit
+            or allow_pipeline_manipulation
+            or allow_manage_labels
+            or allow_product_sales
+        )
 
         if enable_crm_tools:
             from src.services.adk.tools.evo_crm import (
@@ -285,6 +368,8 @@ class ToolBuilder:
                 create_send_private_message_tool,
                 create_update_contact_tool,
                 create_pipeline_manipulation_tool,
+                create_manage_conversation_labels_tool,
+                create_link_product_to_pipeline_item_tool,
             )
 
             try:
@@ -330,6 +415,22 @@ class ToolBuilder:
                         + (f" with {len(pipeline_rules)} pipeline rules" if pipeline_rules else "")
                     )
 
+                # Add manage_conversation_labels tool if enabled
+                if allow_manage_labels:
+                    labels_tool = create_manage_conversation_labels_tool()
+                    self.tools.append(labels_tool)
+                    logger.info(
+                        f"Added manage_conversation_labels tool from CRM tools"
+                    )
+
+                # Add link_product_to_pipeline_item tool if enabled
+                if allow_product_sales:
+                    product_link_tool = create_link_product_to_pipeline_item_tool()
+                    self.tools.append(product_link_tool)
+                    logger.info(
+                        f"Added link_product_to_pipeline_item tool from CRM tools"
+                    )
+
             except Exception as e:
                 logger.error(f"Error loading CRM tools: {e}")
 
@@ -369,6 +470,96 @@ class ToolBuilder:
             except Exception as e:
                 logger.error(f"Error creating text_to_speech tool from ElevenLabs integration: {e}")
 
+        # Process Knowledge Nexus integration (knowledge_nexus_search)
+        knowledge_nexus_config = integrations.get("knowledge-nexus") or integrations.get("knowledge_nexus")
+        if knowledge_nexus_config and knowledge_nexus_config.get("connected"):
+            try:
+                base_url = (
+                    knowledge_nexus_config.get("nexus_base_url")
+                    or knowledge_nexus_config.get("baseUrl")
+                )
+                api_key = (
+                    knowledge_nexus_config.get("nexus_api_key")
+                    or knowledge_nexus_config.get("apiKey")
+                )
+                # Only the key goes to the vault: nexus_base_url and space_id
+                # are the address, and keeping them out is what lets one
+                # credential serve agents pointing at different spaces.
+                api_key = _apply_vault_refs(
+                    {"credential_refs": _nexus_credential_ref(knowledge_nexus_config)},
+                    {"nexus_api_key": api_key},
+                ).get("nexus_api_key")
+                space_id = (
+                    knowledge_nexus_config.get("space_id")
+                    or knowledge_nexus_config.get("spaceId")
+                )
+
+                missing = [
+                    name
+                    for name, value in (
+                        ("nexus_base_url", base_url),
+                        ("nexus_api_key", api_key),
+                        ("space_id", space_id),
+                    )
+                    if not value
+                ]
+
+                if missing:
+                    logger.warning(
+                        "knowledge-nexus integration is connected but missing required fields "
+                        f"({', '.join(missing)}) — skipping tool creation."
+                    )
+                else:
+                    from src.services.adk.tools.knowledge_nexus import (
+                        create_knowledge_nexus_search_tool,
+                    )
+
+                    raw_top_k = knowledge_nexus_config.get("default_top_k", 10)
+                    try:
+                        default_top_k = int(raw_top_k)
+                    except (TypeError, ValueError):
+                        logger.warning(
+                            f"knowledge-nexus: invalid 'default_top_k' value "
+                            f"({raw_top_k!r}), falling back to 10."
+                        )
+                        default_top_k = 10
+
+                    default_filters = knowledge_nexus_config.get("default_filters") or {}
+                    if not isinstance(default_filters, dict):
+                        logger.warning(
+                            f"knowledge-nexus: 'default_filters' must be an object, got "
+                            f"{type(default_filters).__name__} — using empty filters."
+                        )
+                        default_filters = {}
+
+                    raw_timeout = knowledge_nexus_config.get("timeout_seconds", 15.0)
+                    try:
+                        timeout_seconds = float(raw_timeout)
+                    except (TypeError, ValueError):
+                        logger.warning(
+                            f"knowledge-nexus: invalid 'timeout_seconds' value "
+                            f"({raw_timeout!r}), falling back to 15.0."
+                        )
+                        timeout_seconds = 15.0
+
+                    self.tools.append(
+                        create_knowledge_nexus_search_tool(
+                            nexus_base_url=base_url,
+                            nexus_api_key=api_key,
+                            space_id=space_id,
+                            default_top_k=default_top_k,
+                            default_filters=default_filters,
+                            timeout_seconds=timeout_seconds,
+                        )
+                    )
+                    logger.info(
+                        f"Added knowledge_nexus_search tool "
+                        f"(space_id={space_id}, top_k={default_top_k}, "
+                        f"timeout={timeout_seconds}s)"
+                    )
+            except Exception as e:
+                logger.error(f"Error creating knowledge_nexus_search tool: {e}")
+
         # Process Google Calendar integration
         logger.debug(f"Checking Google Calendar integration. Integrations keys: {list(integrations.keys()) if integrations else 'None'}")
         google_calendar_config = integrations.get("google-calendar") or integrations.get("google_calendar")
@@ -381,6 +572,8 @@ class ToolBuilder:
                 from src.services.adk.tools.google_calendar import (
                     create_check_availability_tool,
                     create_calendar_event_tool,
+                    create_cancel_event_tool,
+                    create_edit_event_tool,
                 )
 
                 # Use agent_id from parameter if available, otherwise try to get from config
@@ -409,8 +602,28 @@ class ToolBuilder:
                         )
                     )
 
+                    # Add cancel_event tool with configs from agent.config.integrations
+                    self.tools.append(
+                        create_cancel_event_tool(
+                            agent_id=effective_agent_id,
+                            calendar_config=google_calendar_config,
+                            credentials_config=google_calendar_credentials,
+                            db=db
+                        )
+                    )
+
+                    # Add edit_event tool with configs from agent.config.integrations
+                    self.tools.append(
+                        create_edit_event_tool(
+                            agent_id=effective_agent_id,
+                            calendar_config=google_calendar_config,
+                            credentials_config=google_calendar_credentials,
+                            db=db
+                        )
+                    )
+
                     logger.info(
-                        f"Added Google Calendar tools (check_availability, create_event) "
+                        f"Added Google Calendar tools (check_availability, create_event, cancel_event, edit_event) "
                         f"for agent {effective_agent_id}"
                     )
             except Exception as e:

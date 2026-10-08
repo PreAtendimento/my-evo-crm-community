@@ -1,44 +1,91 @@
+import { toast } from 'sonner';
 import { ConversationFilter, ConversationListParams } from '@/types/chat/api';
+import { useAuthStore } from '@/store/authStore';
+import i18n from '@/i18n/config';
+
+const ADDITIONAL_ATTRIBUTE_KEYS = [
+  'browser_language',
+  'conversation_language',
+  'country_code',
+  'referer',
+  'mail_subject',
+];
+
+// Rewrites assignee_type / assignee_id filter rows so they target the real
+// column assignee_id on the backend. The attribute assignee_type exists only
+// on the frontend catalog; it needs semantic translation when heading into
+// the POST /conversations/filter payload.
+const rewriteAssigneeRow = (filter: ConversationFilter): ConversationFilter | null => {
+  const { attribute_key, values } = filter;
+  if (attribute_key !== 'assignee_type' && attribute_key !== 'assignee_id') {
+    return filter;
+  }
+  const value = Array.isArray(values) ? values[0] : values;
+
+  if (attribute_key === 'assignee_id' && typeof value === 'string' && !['me', 'unassigned', 'assigned', 'all'].includes(value)) {
+    return filter;
+  }
+
+  switch (value) {
+    case 'me': {
+      const currentUserId = useAuthStore.getState().currentUser?.id;
+      if (!currentUserId) {
+        console.warn(
+          '[filterConverters] assignee "me" filter dropped: no current user in auth store (session expired?)',
+        );
+        toast.error(i18n.t('chat:conversationsFilter.errors.assigneeMeNoSession.title'), {
+          description: i18n.t('chat:conversationsFilter.errors.assigneeMeNoSession.description'),
+        });
+        return null;
+      }
+      return { ...filter, attribute_key: 'assignee_id', filter_operator: 'equal_to', values: [currentUserId] };
+    }
+    case 'unassigned':
+      return { ...filter, attribute_key: 'assignee_id', filter_operator: 'is_not_present', values: [] };
+    case 'assigned':
+      return { ...filter, attribute_key: 'assignee_id', filter_operator: 'is_present', values: [] };
+    case 'all':
+      return null;
+    default:
+      return { ...filter, attribute_key: 'assignee_id' };
+  }
+};
+
+interface FilterApiItem {
+  attribute_key: string;
+  filter_operator: string;
+  values: unknown[];
+  query_operator: string | null;
+  custom_attribute_type?: string;
+}
 
 /**
  * Converte filtros do modal para o formato da API do CRM Chat (POST /conversations/filter)
  */
-export const convertFiltersToApiFormat = (filters: ConversationFilter[]): { filters: any[] } => {
-  const filterArray: any[] = [];
+export const convertFiltersToApiFormat = (
+  filters: ConversationFilter[],
+): { filters: FilterApiItem[] } => {
+  const rewritten = filters
+    .map(rewriteAssigneeRow)
+    .filter((f): f is ConversationFilter => f !== null);
 
-  filters.forEach((filter, index) => {
+  const filterArray: FilterApiItem[] = rewritten.map((filter, index) => {
     const { attribute_key, filter_operator, values } = filter;
-    const query_operator = index === 0 ? null : 'AND'; // Primeiro filtro não tem operador, demais usam AND
+    const query_operator =
+      index === 0 ? null : (filter.query_operator || 'and').toUpperCase();
 
-    // Determinar se é custom attribute baseado no attribute_key
-    const isCustomAttribute = [
-      'browser_language',
-      'conversation_language',
-      'country_code',
-      'referer',
-      'mail_subject',
-      'priority',
-    ].includes(attribute_key);
-
-    const filterItem: any = {
+    const filterItem: FilterApiItem = {
       attribute_key,
       filter_operator,
       values,
       query_operator,
     };
 
-    // Adicionar custom_attribute_type se necessário
-    if (isCustomAttribute) {
-      if (attribute_key === 'priority') {
-        // Priority é um custom attribute padrão
-        filterItem.custom_attribute_type = 'conversation_attribute';
-      } else {
-        // Outros são additional_attributes
-        filterItem.custom_attribute_type = '';
-      }
+    if (ADDITIONAL_ATTRIBUTE_KEYS.includes(attribute_key)) {
+      filterItem.custom_attribute_type = '';
     }
 
-    filterArray.push(filterItem);
+    return filterItem;
   });
 
   return { filters: filterArray };
@@ -75,6 +122,15 @@ export const convertFiltersToUrlParams = (
         }
         break;
 
+      // O modal usa attribute_key 'assignee_type' (me/unassigned/assigned/all).
+      // Sem este case ele era DROPADO no GET → "Assigned" mostrava tudo. O finder
+      // (apply_assignee_type_filter) trata me/unassigned/assigned/all direto.
+      case 'assignee_type':
+        if (values.length === 1) {
+          params.assignee_type = values[0] as ConversationListParams['assignee_type'];
+        }
+        break;
+
       case 'inbox_id':
         if (values.length === 1) {
           params.inbox_id = values[0] as string;
@@ -93,6 +149,26 @@ export const convertFiltersToUrlParams = (
         }
         break;
 
+      // Chips "Não lidas" / "Grupos" (eixo de navegação, não status) → GET barato.
+      case 'unread':
+        if (values.length === 1) {
+          params.unread = String(values[0]) === 'true';
+        }
+        break;
+
+      // EVO-1963: "Não respondidas" — abertas aguardando resposta do agente.
+      case 'unanswered':
+        if (values.length === 1) {
+          params.unanswered = String(values[0]) === 'true';
+        }
+        break;
+
+      case 'is_group':
+        if (values.length === 1) {
+          params.is_group = String(values[0]) === 'true';
+        }
+        break;
+
       // case 'priority': // Não suportado pela API GET
       //   if (values.length === 1) {
       //     params.priority = values[0] as string;
@@ -101,6 +177,13 @@ export const convertFiltersToUrlParams = (
     }
   });
 
+  // Sem linha de status nos filtros, NÃO deixar o backend cair no default
+  // implícito status=open (footgun: filtrar por inbox/atendente/label sem status
+  // trazia só abertas). status ausente = All, coerente com a visão padrão.
+  if (!params.status) {
+    params.status = 'all';
+  }
+
   return params;
 };
 
@@ -108,10 +191,21 @@ export const convertFiltersToUrlParams = (
  * Determina se deve usar filtros avançados (POST) ou simples (GET)
  */
 export const shouldUseAdvancedFilters = (filters: ConversationFilter[]): boolean => {
-  // Se não há filtros, usar GET simples
+  // Sem filtros, GET simples vazio é suficiente.
   if (filters.length === 0) return false;
 
-  // Verificar cada filtro individualmente
+  // Multi-filtro sempre via POST — GET expressa só AND implícito na URL,
+  // e o converter pra URL params não cobre todos os operators/attributes.
+  if (filters.length > 1) return true;
+
+  // Operators is_present / is_not_present não têm mapeamento completo no GET
+  // path (convertFiltersToUrlParams só trata equal_to), então forçamos POST.
+  const hasPresenceOperator = filters.some(f =>
+    ['is_present', 'is_not_present'].includes(f.filter_operator),
+  );
+  if (hasPresenceOperator) return true;
+
+  // Verificar cada filtro individualmente (cenários single-row restantes).
   return filters.some(filter => {
     const { attribute_key, filter_operator } = filter;
 
@@ -130,6 +224,8 @@ export const shouldUseAdvancedFilters = (filters: ConversationFilter[]): boolean
       'created_at',
       'last_activity_at',
       'campaign_id',
+      'channel_type',
+      'contact_id',
       'priority',
       'pipeline_id',
       'browser_language',

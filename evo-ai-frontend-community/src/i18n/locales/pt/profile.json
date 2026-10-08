@@ -105,7 +105,8 @@
         "title": "Permissão do Navegador",
         "description": "Permitir notificações push do navegador",
         "granted": "Permissões de notificação concedidas",
-        "denied": "Permissões de notificação negadas"
+        "denied": "Permissões de notificação negadas",
+        "notSupported": "As notificações do navegador não são suportadas"
       },
       "email": {
         "title": "Notificações por Email",
@@ -167,7 +168,8 @@
         "playWhenInactive": "Reproduzir apenas quando a aba estiver inativa",
         "alertUnread": "Alertar se existirem conversas não lidas atribuídas"
       },
-      "updated": "Configurações de áudio atualizadas"
+      "updated": "Configurações de áudio atualizadas",
+      "saveError": "Erro ao guardar configurações de áudio"
     },
     "twoFactor": {
       "title": "Autenticação de Dois Fatores",
@@ -270,7 +272,8 @@
         "enable": "Ativar Autenticação de Dois Fatores",
         "disable": "Desativar Autenticação de Dois Fatores"
       },
-      "info": "A autenticação de dois fatores adiciona uma camada extra de segurança exigindo um código adicional além da sua senha ao fazer login."
+      "info": "A autenticação de dois fatores adiciona uma camada extra de segurança exigindo um código adicional além da sua senha ao fazer login.",
+      "setupIncompleteWarning": "Os seus códigos de recuperação de autenticação de dois fatores foram invalidados devido a uma atualização de segurança. Configure a autenticação de dois fatores novamente para restaurar o acesso de recuperação."
     },
     "common": {
       "cancel": "Cancelar",

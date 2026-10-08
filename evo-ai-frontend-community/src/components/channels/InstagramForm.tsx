@@ -1,10 +1,12 @@
 import { useState } from 'react';
-import { Button } from '@evoapi/design-system';
+import { Button, Input } from '@evoapi/design-system';
 import { toast } from 'sonner';
 import { useLanguage } from '@/hooks/useLanguage';
 import { useGlobalConfig } from '@/contexts/GlobalConfigContext';
 import instagramService from '@/services/channels/instagramService';
 import { Instagram, AlertTriangle } from 'lucide-react';
+import HubConnectButton from '@/components/inbox/HubConnectButton';
+import { FormActionBar } from '@/components/channels/shared/FormActionBar';
 
 interface InstagramFormProps {
   onCancel?: () => void;
@@ -13,11 +15,40 @@ interface InstagramFormProps {
 export default function InstagramForm({ onCancel }: InstagramFormProps) {
   const { t } = useLanguage('instagram');
   const config = useGlobalConfig();
+  const hubEnabled = config.evolutionHubEnabled === true;
 
   const [isConnecting, setIsConnecting] = useState(false);
+  const [inboxName, setInboxName] = useState('');
 
   // Check if Instagram is properly configured
   const isInstagramConfigured = !!config.instagramAppId;
+
+  if (hubEnabled) {
+    return (
+      <div className="space-y-6">
+        <div className="space-y-2">
+          <label className="text-sm font-medium text-foreground">
+            {t('channelName') || 'Channel Name'}
+          </label>
+          <Input
+            placeholder={t('channelNamePlaceholder') || 'Instagram Channel'}
+            value={inboxName}
+            onChange={(e) => setInboxName(e.target.value)}
+          />
+        </div>
+        <HubConnectButton channelType="instagram" name={inboxName} />
+        {onCancel && (
+          <FormActionBar>
+            <div className="flex justify-end">
+              <Button variant="outline" onClick={onCancel} className="min-w-24">
+                {t('cancel') || 'Cancel'}
+              </Button>
+            </div>
+          </FormActionBar>
+        )}
+      </div>
+    );
+  }
 
   const handleInstagramConnect = async () => {
     if (!isInstagramConfigured) {
@@ -76,39 +107,39 @@ export default function InstagramForm({ onCancel }: InstagramFormProps) {
         </div>
       </div>
 
-      {/* Connection Button */}
-      <div className="flex flex-col items-center gap-4">
-        <Button
-          onClick={handleInstagramConnect}
-          disabled={!isInstagramConfigured || isConnecting}
-          size="lg"
-          className="bg-gradient-to-r from-purple-500 via-pink-500 to-orange-500 hover:from-purple-600 hover:via-pink-600 hover:to-orange-600 text-white min-w-[240px] disabled:from-gray-400 disabled:via-gray-400 disabled:to-gray-400"
-        >
-          {isConnecting ? (
-            <>
-              <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin mr-2" />
-              {t('connecting')}
-            </>
-          ) : (
-            <>
-              <Instagram className="w-4 h-4 mr-2" />
-              {t('connectButton')}
-            </>
-          )}
-        </Button>
-
-        {onCancel && (
-          <Button variant="outline" onClick={onCancel} disabled={isConnecting}>
-            {t('cancel')}
-          </Button>
-        )}
-      </div>
-
       {/* Instructions */}
       <div className="text-center space-y-2 pt-4 border-t">
         <p className="text-sm text-muted-foreground">{t('instructions.redirect')}</p>
         <p className="text-xs text-muted-foreground">{t('instructions.businessAccount')}</p>
       </div>
+
+      {/* Standardized footer band — the OAuth redirect action lives here. */}
+      <FormActionBar>
+        <div className="flex justify-end gap-3">
+          {onCancel && (
+            <Button variant="outline" onClick={onCancel} disabled={isConnecting} className="min-w-24">
+              {t('cancel')}
+            </Button>
+          )}
+          <Button
+            onClick={handleInstagramConnect}
+            disabled={!isInstagramConfigured || isConnecting}
+            className="bg-gradient-to-r from-purple-500 via-pink-500 to-orange-500 hover:from-purple-600 hover:via-pink-600 hover:to-orange-600 text-white min-w-[200px] disabled:from-gray-400 disabled:via-gray-400 disabled:to-gray-400"
+          >
+            {isConnecting ? (
+              <>
+                <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin mr-2" />
+                {t('connecting')}
+              </>
+            ) : (
+              <>
+                <Instagram className="w-4 h-4 mr-2" />
+                {t('connectButton')}
+              </>
+            )}
+          </Button>
+        </div>
+      </FormActionBar>
     </div>
   );
 }

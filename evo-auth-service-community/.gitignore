@@ -15,6 +15,8 @@
 /tmp/*
 !/log/.keep
 !/tmp/.keep
+# Local scratch dir for smoke logs / dev artifacts (NOT Rails /tmp).
+/.tmp/
 
 # Ignore pidfiles, but keep the directory.
 /tmp/pids/*
@@ -35,3 +37,9 @@
 .instance
 .runtime.dat
 .obfmap.json
+
+# Workspace planning artifacts (not part of the application)
+_evo/
+_evo-output/
+_bmad/
+_bmad-output/

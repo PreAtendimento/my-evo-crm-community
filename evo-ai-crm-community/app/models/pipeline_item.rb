@@ -16,12 +16,12 @@
 #
 # Indexes
 #
-#  index_pipeline_items_on_contact_id                       (contact_id)
-#  index_pipeline_items_on_contact_id_and_pipeline_id       (contact_id,pipeline_id) UNIQUE WHERE (conversation_id IS NULL)
-#  index_pipeline_items_on_conversation_id_and_pipeline_id  (conversation_id,pipeline_id) UNIQUE WHERE (conversation_id IS NOT NULL)
-#  index_pipeline_items_on_custom_fields                    (custom_fields) USING gin
-#  index_pipeline_items_on_pipeline_id                      (pipeline_id)
-#  index_pipeline_items_on_pipeline_stage_id                (pipeline_stage_id)
+#  idx_pipeline_items_active_contact_per_pipeline       (contact_id,pipeline_id) UNIQUE WHERE ((conversation_id IS NULL) AND (completed_at IS NULL))
+#  idx_pipeline_items_active_conversation_per_pipeline  (conversation_id,pipeline_id) UNIQUE WHERE ((conversation_id IS NOT NULL) AND (completed_at IS NULL))
+#  index_pipeline_items_on_contact_id                   (contact_id)
+#  index_pipeline_items_on_custom_fields                (custom_fields) USING gin
+#  index_pipeline_items_on_pipeline_id                  (pipeline_id)
+#  index_pipeline_items_on_pipeline_stage_id            (pipeline_stage_id)
 #
 # Foreign Keys
 #
@@ -39,23 +39,51 @@ class PipelineItem < ApplicationRecord
   belongs_to :contact, optional: true
   belongs_to :assigned_by, class_name: 'User', optional: true
 
+  # Um item é OU por-contato (lead, conversation_id nil) OU por-conversa. Quando uma conversa
+  # PROMOVE um lead-card (Conversation#promote_lead_card seta conversation_id e LIMPA contact_id),
+  # o contato passa a vir da conversa. Este accessor faz o card-de-conversa ainda responder
+  # `.contact` (readers como StageInactivityTargetResolver dependem disso).
+  def contact
+    super || conversation&.contact
+  end
+
   has_many :stage_movements, dependent: :destroy
   has_many :tasks, class_name: 'PipelineTask', dependent: :destroy
+  has_many :pipeline_item_products, dependent: :destroy
+  has_many :products, through: :pipeline_item_products
+  has_many :product_variants, through: :pipeline_item_products
 
-  validates :conversation_id, uniqueness: { scope: :pipeline_id }, allow_nil: true
-  validates :contact_id, uniqueness: { scope: :pipeline_id }, allow_nil: true
+  validates :conversation_id, uniqueness: { scope: :pipeline_id, conditions: -> { where(completed_at: nil) },
+                                            message: 'already has an active journey in this pipeline' }, allow_nil: true
+  validates :contact_id, uniqueness: { scope: :pipeline_id, conditions: -> { where(completed_at: nil) },
+                                       message: 'already has an active journey in this pipeline' }, allow_nil: true
   validate :must_have_conversation_or_contact
   validate :validate_custom_fields_structure
 
   before_save :normalize_services_data!
   after_create :create_entry_movement
-  after_create :publish_pipeline_item_created
+  # `_commit` so the Wisper publish + dispatcher dispatch (and the Sidekiq job
+  # they enqueue) only fire after the transaction commits — avoids orphan jobs
+  # on rollback.
+  after_create_commit :publish_pipeline_item_created
+  after_create :dispatch_initial_stage_event
+  # EVO-1266: Wisper broadcast for journey-trigger consumption is
+  # post-commit so rollbacks don't leak orphan Sidekiq jobs (mirrors
+  # publish_pipeline_item_created above). The pre-commit
+  # `dispatch_initial_stage_event` / `create_stage_change_movement`
+  # below keep firing the legacy `Rails.configuration.dispatcher`
+  # event for AutomationRules — its in-transaction execution is an
+  # AC of that pre-existing path.
+  after_create_commit :broadcast_stage_update_to_evo_flow
   after_update :create_stage_change_movement, if: :saved_change_to_pipeline_stage_id?
+  after_update_commit :broadcast_stage_update_to_evo_flow, if: :saved_change_to_pipeline_stage_id?
   after_update :publish_pipeline_item_updated
   after_update :publish_pipeline_item_completed, if: :saved_change_to_completed_at?
   after_destroy :publish_pipeline_item_deleted
 
   scope :in_stage, ->(stage) { where(pipeline_stage: stage) }
+  scope :active, -> { where(completed_at: nil) }
+  scope :completed, -> { where.not(completed_at: nil) }
 
   def move_to_stage(new_stage, _moved_by = nil)
     return false if new_stage.pipeline != pipeline
@@ -75,7 +103,15 @@ class PipelineItem < ApplicationRecord
   end
 
   def days_in_current_stage
-    last_movement = stage_movements.order(:created_at).last
+    # Read from the loaded association in memory (max_by) instead of
+    # `order(:created_at).last`, which re-queries even when stage_movements is
+    # eager-loaded — an N+1 when serializing many items. Falls back to a query
+    # if not preloaded.
+    last_movement = if stage_movements.loaded?
+                      stage_movements.max_by(&:created_at)
+                    else
+                      stage_movements.order(:created_at).last
+                    end
     start_time = last_movement&.created_at || entered_at
     ((Time.current - start_time) / 1.day).round
   end
@@ -301,12 +337,26 @@ class PipelineItem < ApplicationRecord
     old_stage_id = pipeline_stage_id_previously_was
     old_stage = PipelineStage.find_by(id: old_stage_id)
 
-    stage_movements.create!(
-      from_stage: old_stage,
-      to_stage: pipeline_stage,
-      moved_by: Current.user,
-      movement_type: 'manual'
-    )
+    # Cross-pipeline moves are recorded by the caller (e.g.
+    # Pipelines::StageAutomationService#move_to_pipeline) with a
+    # `cross_pipeline` movement_type that bypasses the same-pipeline
+    # validation. Creating a `manual` movement here would otherwise hit
+    # `stages_belong_to_same_pipeline` and roll the update back.
+    cross_pipeline_change = old_stage && old_stage.pipeline_id != pipeline_stage.pipeline_id
+
+    unless cross_pipeline_change
+      stage_movements.create!(
+        from_stage: old_stage,
+        to_stage: pipeline_stage,
+        moved_by: Current.user,
+        movement_type: 'manual'
+      )
+    end
+
+    # Stage changed → the "stuck in stage" clock restarts, so wipe any
+    # stage_stagnation inactivity executions for this item (reply executions are
+    # left intact — they reset on incoming messages instead).
+    StageInactivityExecution.reset_for_item(id, base: 'stage_stagnation')
 
     # Trigger automation event for pipeline stage update
     Rails.configuration.dispatcher.dispatch(
@@ -314,6 +364,38 @@ class PipelineItem < ApplicationRecord
       Time.zone.now,
       pipeline_item: self,
       changed_attributes: { 'pipeline_stage_id' => [old_stage_id, pipeline_stage_id] }
+    )
+  end
+
+  def dispatch_initial_stage_event
+    Rails.configuration.dispatcher.dispatch(
+      'pipeline_stage_updated',
+      Time.zone.now,
+      pipeline_item: self,
+      changed_attributes: { 'pipeline_stage_id' => [nil, pipeline_stage_id] }
+    )
+  end
+
+  # EVO-1266: post-commit Wisper broadcast that EvoFlow::PipelineEventsListener
+  # consumes to publish the canonical pipeline.stage_changed event to evo-flow
+  # for journey trigger matching. Runs after both `after_create_commit` (initial
+  # stage assignment — old = nil) and `after_update_commit` (subsequent stage
+  # change). Resolves the from/to ids from the dirty-tracking attribute API,
+  # which remains valid in the *_commit lifecycle.
+  def broadcast_stage_update_to_evo_flow
+    old_stage_id, new_stage_id =
+      if saved_change_to_pipeline_stage_id?
+        saved_change_to_pipeline_stage_id
+      else
+        [nil, pipeline_stage_id]
+      end
+
+    publish(
+      :pipeline_stage_updated,
+      data: {
+        pipeline_item: self,
+        changed_attributes: { 'pipeline_stage_id' => [old_stage_id, new_stage_id] }
+      }
     )
   end
 
@@ -368,5 +450,13 @@ class PipelineItem < ApplicationRecord
       Time.zone.now,
       pipeline_item: self
     )
+  end
+
+  public
+
+  # Sum of (quantity * locked_unit_price) across every linked product.
+  # Returns a Decimal so callers can format/round as they prefer.
+  def total_value
+    pipeline_item_products.sum('quantity * locked_unit_price')
   end
 end

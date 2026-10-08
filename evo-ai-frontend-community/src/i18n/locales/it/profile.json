@@ -105,7 +105,8 @@
         "title": "Autorizzazione browser",
         "description": "Consenti notifiche push dal browser",
         "granted": "Autorizzazioni di notifica concesse",
-        "denied": "Autorizzazioni di notifica negate"
+        "denied": "Autorizzazioni di notifica negate",
+        "notSupported": "Le notifiche del browser non sono supportate"
       },
       "email": {
         "title": "Notifiche via email",
@@ -167,7 +168,8 @@
         "playWhenInactive": "Riproduci solo quando la scheda è inattiva",
         "alertUnread": "Avvisa se esistono conversazioni non lette assegnate"
       },
-      "updated": "Impostazioni audio aggiornate"
+      "updated": "Impostazioni audio aggiornate",
+      "saveError": "Errore durante il salvataggio delle impostazioni audio"
     },
     "twoFactor": {
       "title": "Autenticazione a due fattori",
@@ -270,7 +272,8 @@
         "enable": "Attiva autenticazione a due fattori",
         "disable": "Disattiva autenticazione a due fattori"
       },
-      "info": "L'autenticazione a due fattori aggiunge un ulteriore livello di sicurezza richiedendo un codice aggiuntivo oltre alla password durante l'accesso."
+      "info": "L'autenticazione a due fattori aggiunge un ulteriore livello di sicurezza richiedendo un codice aggiuntivo oltre alla password durante l'accesso.",
+      "setupIncompleteWarning": "I codici di recupero dell'autenticazione a due fattori sono stati invalidati a seguito di un aggiornamento di sicurezza. Riconfigura l'autenticazione a due fattori per ripristinare l'accesso di recupero."
     },
     "common": {
       "cancel": "Annulla",

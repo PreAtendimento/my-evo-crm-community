@@ -26,6 +26,10 @@ from src.schemas.response_models import (
     IntegrationConfigResponse, DiscoverToolsResponse, DisconnectResponse
 )
 
+from src.api.dependencies import get_current_user
+from src.api.oauth_redirect import derive_redirect_uri
+from src.middleware.permissions import RequirePermission
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(
@@ -75,11 +79,16 @@ async def get_monday_service(
 
     # Fetch credentials from global config
     config_service = get_global_config_service()
-    credentials = await config_service.get_monday_credentials()
+    # Thread the request's tenant (enterprise) into the credential fetch so the
+    # CRM resolves the per-tenant BYO credential. None under community/standalone
+    # (runtime_context default) → the header is omitted and the call is a no-op.
+    from src.evo_extension_points import runtime_context
+    cid = runtime_context.current_context_id(request)
+    credentials = await config_service.get_monday_credentials(tenant_id=cid)
 
     client_id = credentials.get("client_id")  # Optional - can be obtained via dynamic registration
     client_secret = credentials.get("client_secret")  # Optional - can be obtained via dynamic registration
-    redirect_uri = credentials.get("redirect_uri")
+    redirect_uri = credentials.get("redirect_uri") or derive_redirect_uri(request, "monday")
 
     # Only redirect_uri is required - client_id and client_secret can be obtained via dynamic registration (RFC 7591)
     if not redirect_uri:
@@ -108,7 +117,8 @@ async def get_monday_service(
         core_service_url=core_service_url,
         user_token=user_token,
         client_id=client_id,  # Optional
-        client_secret=client_secret  # Optional
+        client_secret=client_secret,  # Optional
+        tenant_id=cid
     )
 
 
@@ -137,6 +147,8 @@ async def get_monday_service_optional(
 async def discover_oauth_requirements(
     agent_id: str,
     service: MondayService = Depends(get_monday_service),
+    _permission: None = Depends(RequirePermission("integrations", "connect")),
+    _: dict = Depends(get_current_user),
 ):
     """
     Discover OAuth requirements from Monday MCP server.
@@ -173,6 +185,8 @@ async def discover_oauth_requirements(
 async def generate_authorization(
     agent_id: str,
     service: MondayService = Depends(get_monday_service),
+    _permission: None = Depends(RequirePermission("integrations", "connect")),
+    _: dict = Depends(get_current_user),
 ):
     """
     Generate OAuth 2.0 authorization URL for Monday MCP.
@@ -214,6 +228,8 @@ async def complete_authorization(
     request: CallbackRequest,
     db: Session = Depends(get_db),
     service: MondayService = Depends(get_monday_service),
+    _permission: None = Depends(RequirePermission("integrations", "connect")),
+    _: dict = Depends(get_current_user),
 ):
     """
     Complete OAuth authorization flow and store tokens.
@@ -285,6 +301,8 @@ async def get_configuration(
     agent_id: str,
     db: Session = Depends(get_db),
     service: Optional[MondayService] = Depends(get_monday_service_optional),
+    _permission: None = Depends(RequirePermission("integrations", "read")),
+    _: dict = Depends(get_current_user),
 ):
     """Get Monday integration configuration. Creates default config if not found."""
     try:
@@ -343,6 +361,8 @@ async def discover_tools(
     agent_id: str,
     db: Session = Depends(get_db),
     service: Optional[MondayService] = Depends(get_monday_service_optional),
+    _permission: None = Depends(RequirePermission("integrations", "read")),
+    _: dict = Depends(get_current_user),
 ):
     """Discover available MCP tools from Monday using stored access_token."""
     from src.api.mcp_integration_base import discover_tools_endpoint
@@ -374,6 +394,8 @@ async def update_configuration(
     config: Dict[str, Any],
     db: Session = Depends(get_db),
     service: MondayService = Depends(get_monday_service),
+    _permission: None = Depends(RequirePermission("integrations", "update")),
+    _: dict = Depends(get_current_user),
 ):
     """Save Monday integration configuration."""
     try:
@@ -451,6 +473,8 @@ async def update_configuration(
 async def disconnect(
     agent_id: str,
     service: MondayService = Depends(get_monday_service),
+    _permission: None = Depends(RequirePermission("integrations", "disconnect")),
+    _: dict = Depends(get_current_user),
 ):
     """Disconnect Monday integration."""
     try:

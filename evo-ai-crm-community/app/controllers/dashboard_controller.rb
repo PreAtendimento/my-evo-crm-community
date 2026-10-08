@@ -5,7 +5,6 @@ class DashboardController < ActionController::Base
   before_action :set_global_config
   before_action :set_dashboard_scripts
   around_action :switch_locale
-  before_action :ensure_installation_onboarding, only: [:index]
   before_action :render_hc_if_custom_domain, only: [:index]
   before_action :ensure_html_format
   layout 'vueapp'
@@ -55,10 +54,6 @@ class DashboardController < ActionController::Base
 
   def set_dashboard_scripts
     @dashboard_scripts = sensitive_path? ? nil : GlobalConfig.get_value('DASHBOARD_SCRIPTS')
-  end
-
-  def ensure_installation_onboarding
-    redirect_to '/installation/onboarding' if ::Redis::Alfred.get(::Redis::Alfred::EVOLUTION_INSTALLATION_ONBOARDING)
   end
 
   def render_hc_if_custom_domain
@@ -118,8 +113,6 @@ class DashboardController < ActionController::Base
       EVOLUTION_ADMIN_SECRET: GlobalConfigService.load('EVOLUTION_ADMIN_SECRET', ''),
       EVOLUTION_GO_API_URL: GlobalConfigService.load('EVOLUTION_GO_API_URL', ''),
       EVOLUTION_GO_ADMIN_SECRET: GlobalConfigService.load('EVOLUTION_GO_ADMIN_SECRET', ''),
-      EVOLUTION_GO_INSTANCE_ID: GlobalConfigService.load('EVOLUTION_GO_INSTANCE_ID', ''),
-      EVOLUTION_GO_INSTANCE_SECRET: GlobalConfigService.load('EVOLUTION_GO_INSTANCE_SECRET', ''),
       OPENAI_API_URL: GlobalConfigService.load('OPENAI_API_URL', ''),
       OPENAI_API_SECRET: GlobalConfigService.load('OPENAI_API_SECRET', ''),
       OPENAI_MODEL: GlobalConfigService.load('OPENAI_MODEL', 'gpt-4.1-nano'),

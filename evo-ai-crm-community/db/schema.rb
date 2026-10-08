@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 9025_08_19_224901) do
+ActiveRecord::Schema[7.1].define(version: 2026_08_26_120000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_stat_statements"
   enable_extension "pg_trgm"
@@ -20,7 +20,7 @@ ActiveRecord::Schema[7.1].define(version: 9025_08_19_224901) do
 
   # Custom types defined in this database.
   # Note that some types may not work with other database engines. Be careful if changing database.
-  create_enum "contact_type_enum", ["person", "company"]
+  create_enum "contact_type_enum", ["person", "company", "group"]
 
   create_table "access_tokens", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
     t.string "name", limit: 255, null: false
@@ -120,6 +120,17 @@ ActiveRecord::Schema[7.1].define(version: 9025_08_19_224901) do
     t.integer "text_segmentation_min_size", default: 50
     t.decimal "delay_per_character", precision: 8, scale: 2, default: "50.0"
     t.integer "debounce_time", default: 5, null: false
+    t.uuid "credential_id"
+  end
+
+  create_table "ai_agent_products", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
+    t.uuid "ai_agent_id", null: false
+    t.uuid "product_id", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["ai_agent_id", "product_id"], name: "index_ai_agent_products_unique", unique: true
+    t.index ["ai_agent_id"], name: "index_ai_agent_products_on_ai_agent_id"
+    t.index ["product_id"], name: "index_ai_agent_products_on_product_id"
   end
 
   create_table "alembic_version", primary_key: "version_num", id: { type: :string, limit: 32 }, force: :cascade do |t|
@@ -143,6 +154,24 @@ ActiveRecord::Schema[7.1].define(version: 9025_08_19_224901) do
     t.string "attachable_type"
     t.uuid "attachable_id"
     t.index ["attachable_type", "attachable_id"], name: "index_attachments_on_attachable_type_and_attachable_id"
+  end
+
+  create_table "automation_rule_runs", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
+    t.uuid "automation_rule_id", null: false
+    t.string "event_name", null: false
+    t.string "status", null: false
+    t.datetime "started_at", null: false
+    t.datetime "finished_at"
+    t.integer "duration_ms"
+    t.text "error_message"
+    t.jsonb "payload", default: {}
+    t.jsonb "steps", default: []
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["automation_rule_id", "started_at"], name: "index_automation_rule_runs_on_rule_and_started_at", order: { started_at: :desc }
+    t.index ["automation_rule_id"], name: "index_automation_rule_runs_on_automation_rule_id"
+    t.index ["started_at"], name: "index_automation_rule_runs_on_started_at"
+    t.index ["status"], name: "index_automation_rule_runs_on_status"
   end
 
   create_table "automation_rules", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
@@ -214,6 +243,7 @@ ActiveRecord::Schema[7.1].define(version: 9025_08_19_224901) do
     t.datetime "created_at", precision: nil, null: false
     t.datetime "updated_at", precision: nil, null: false
     t.string "instagram_id"
+    t.jsonb "evolution_hub_meta", default: {}, null: false
     t.index ["page_id"], name: "index_channel_facebook_pages_on_page_id", unique: true
   end
 
@@ -223,6 +253,7 @@ ActiveRecord::Schema[7.1].define(version: 9025_08_19_224901) do
     t.string "instagram_id", null: false
     t.datetime "created_at", precision: nil, null: false
     t.datetime "updated_at", precision: nil, null: false
+    t.jsonb "evolution_hub_meta", default: {}, null: false
     t.index ["instagram_id"], name: "index_channel_instagram_on_instagram_id", unique: true
   end
 
@@ -233,6 +264,19 @@ ActiveRecord::Schema[7.1].define(version: 9025_08_19_224901) do
     t.datetime "created_at", precision: nil, null: false
     t.datetime "updated_at", precision: nil, null: false
     t.index ["line_channel_id"], name: "index_channel_line_on_line_channel_id", unique: true
+  end
+
+  create_table "channel_sendgrid", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
+    t.text "api_key_encrypted", null: false
+    t.string "from_email", null: false
+    t.string "from_name"
+    t.string "reply_to"
+    t.string "sender_domain"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.string "webhook_registration_status", default: "pending", null: false
+    t.text "email_signature"
+    t.index ["from_email"], name: "index_channel_sendgrid_on_from_email"
   end
 
   create_table "channel_sms", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
@@ -306,6 +350,22 @@ ActiveRecord::Schema[7.1].define(version: 9025_08_19_224901) do
     t.index ["phone_number"], name: "index_channel_whatsapp_on_phone_number", unique: true
   end
 
+  create_table "chat_pages", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
+    t.string "slug", limit: 255, null: false
+    t.string "title", limit: 255
+    t.text "description"
+    t.jsonb "appearance", default: {}, null: false
+    t.string "website_token", null: false
+    t.boolean "published", default: false, null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["published"], name: "index_chat_pages_on_published"
+    t.index ["slug"], name: "index_chat_pages_on_slug", unique: true
+    t.index ["website_token"], name: "index_chat_pages_on_website_token"
+    t.check_constraint "slug::text <> ''::text", name: "chat_pages_slug_not_empty"
+    t.check_constraint "website_token::text <> ''::text", name: "chat_pages_website_token_not_empty"
+  end
+
   create_table "contact_companies", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
     t.uuid "contact_id", null: false
     t.uuid "company_id", null: false
@@ -327,6 +387,7 @@ ActiveRecord::Schema[7.1].define(version: 9025_08_19_224901) do
     t.string "pubsub_token"
     t.text "bsuid"
     t.text "whatsapp_username"
+    t.index ["contact_id"], name: "idx_contact_inboxes_contact_id", where: "(contact_id IS NOT NULL)"
     t.index ["contact_id"], name: "index_contact_inboxes_on_contact_id"
     t.index ["inbox_id", "bsuid"], name: "index_contact_inboxes_on_inbox_id_and_bsuid", unique: true, where: "(bsuid IS NOT NULL)"
     t.index ["inbox_id", "source_id"], name: "index_contact_inboxes_on_inbox_id_and_source_id", unique: true
@@ -355,11 +416,16 @@ ActiveRecord::Schema[7.1].define(version: 9025_08_19_224901) do
     t.string "tax_id", limit: 14
     t.string "website"
     t.string "industry"
+    t.boolean "email_suppressed", default: false, null: false
+    t.string "email_suppression_reason"
     t.index ["blocked"], name: "index_contacts_on_blocked"
+    t.index ["custom_attributes"], name: "index_contacts_on_custom_attributes", opclass: :jsonb_path_ops, using: :gin
     t.index ["email"], name: "uniq_email_per_account_contact", unique: true
+    t.index ["id"], name: "idx_contacts_with_identity", where: "(((email)::text <> ''::text) OR ((phone_number)::text <> ''::text) OR ((identifier)::text <> ''::text))"
     t.index ["identifier"], name: "uniq_identifier_per_account_contact", unique: true
     t.index ["last_activity_at"], name: "index_contacts_on_last_activity_at", order: "DESC NULLS LAST"
     t.index ["name", "email", "phone_number", "identifier"], name: "index_contacts_on_name_email_phone_number_identifier", opclass: :gin_trgm_ops, using: :gin
+    t.index ["name", "type", "id"], name: "idx_contacts_name_type_resolved", where: "(((email)::text <> ''::text) OR ((phone_number)::text <> ''::text) OR ((identifier)::text <> ''::text))"
     t.index ["phone_number"], name: "index_contacts_on_phone_number"
     t.index ["tax_id"], name: "index_contacts_on_tax_id", unique: true, where: "(tax_id IS NOT NULL)"
     t.index ["type"], name: "index_contacts_on_type"
@@ -398,6 +464,7 @@ ActiveRecord::Schema[7.1].define(version: 9025_08_19_224901) do
     t.integer "priority"
     t.datetime "waiting_since", precision: nil
     t.text "cached_label_list"
+    t.integer "source", default: 0, null: false
     t.index ["assignee_id", "status", "last_activity_at"], name: "index_conversations_on_assignee_status_last_activity", order: { last_activity_at: "DESC NULLS LAST" }
     t.index ["assignee_id"], name: "index_conversations_on_assignee_id"
     t.index ["contact_id"], name: "index_conversations_on_contact_id"
@@ -414,6 +481,27 @@ ActiveRecord::Schema[7.1].define(version: 9025_08_19_224901) do
     t.index ["team_id"], name: "index_conversations_on_team_id"
     t.index ["uuid"], name: "index_conversations_on_uuid", unique: true
     t.index ["waiting_since"], name: "index_conversations_on_waiting_since"
+  end
+
+  create_table "crm_forms", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
+    t.string "name", limit: 255, null: false
+    t.string "slug", limit: 255, null: false
+    t.string "title", limit: 255
+    t.text "description"
+    t.jsonb "appearance", default: {}, null: false
+    t.jsonb "fields", default: [], null: false
+    t.jsonb "routing_rules", default: [], null: false
+    t.uuid "default_pipeline_id", null: false
+    t.uuid "default_stage_id"
+    t.boolean "published", default: false, null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["fields"], name: "index_crm_forms_on_fields", using: :gin
+    t.index ["published"], name: "index_crm_forms_on_published"
+    t.index ["routing_rules"], name: "index_crm_forms_on_routing_rules", using: :gin
+    t.index ["slug"], name: "index_crm_forms_on_slug", unique: true
+    t.check_constraint "name::text <> ''::text", name: "crm_forms_name_not_empty"
+    t.check_constraint "slug::text <> ''::text", name: "crm_forms_slug_not_empty"
   end
 
   create_table "csat_survey_responses", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
@@ -500,204 +588,6 @@ ActiveRecord::Schema[7.1].define(version: 9025_08_19_224901) do
     t.index ["user_id"], name: "index_data_privacy_consents_on_user_id"
   end
 
-  create_table "events", primary_key: ["id", "app_name", "user_id", "session_id"], force: :cascade do |t|
-    t.string "id", limit: 128, null: false
-    t.string "app_name", limit: 128, null: false
-    t.string "user_id", limit: 128, null: false
-    t.string "session_id", limit: 128, null: false
-    t.string "invocation_id", limit: 256, null: false
-    t.string "author", limit: 256, null: false
-    t.binary "actions", null: false
-    t.text "long_running_tool_ids_json"
-    t.string "branch", limit: 256
-    t.datetime "timestamp", precision: nil, null: false
-    t.jsonb "content"
-    t.jsonb "grounding_metadata"
-    t.jsonb "custom_metadata"
-    t.jsonb "usage_metadata"
-    t.jsonb "citation_metadata"
-    t.boolean "partial"
-    t.boolean "turn_complete"
-    t.string "error_code", limit: 256
-    t.string "error_message", limit: 1024
-    t.boolean "interrupted"
-    t.jsonb "input_transcription"
-    t.jsonb "output_transcription"
-  end
-
-  create_table "evo_agent_processor_execution_metrics", id: :uuid, default: nil, force: :cascade do |t|
-    t.uuid "agent_id"
-    t.string "session_id", null: false
-    t.string "user_id", null: false
-    t.string "llm_model", null: false
-    t.integer "prompt_tokens", null: false
-    t.integer "candidate_tokens", null: false
-    t.float "cost", null: false
-    t.integer "total_tokens", null: false
-    t.timestamptz "created_at", default: -> { "now()" }
-  end
-
-  create_table "evo_ai_agent_processor_execution_metrics", id: :uuid, default: nil, force: :cascade do |t|
-    t.uuid "agent_id"
-    t.string "session_id", null: false
-    t.string "user_id", null: false
-    t.string "llm_model", null: false
-    t.integer "prompt_tokens", null: false
-    t.integer "candidate_tokens", null: false
-    t.float "cost", null: false
-    t.integer "total_tokens", null: false
-    t.timestamptz "created_at", default: -> { "now()" }
-  end
-
-  create_table "evo_ai_agent_processor_session_metadata", primary_key: "session_id", id: :string, force: :cascade do |t|
-    t.string "name"
-    t.text "description"
-    t.json "tags"
-    t.string "created_by_user_id"
-    t.timestamptz "created_at", default: -> { "now()" }
-    t.timestamptz "updated_at"
-  end
-
-  create_table "evo_ai_agent_processor_sessions", id: :string, force: :cascade do |t|
-    t.string "app_name"
-    t.string "user_id"
-    t.json "state"
-    t.timestamptz "create_time"
-    t.timestamptz "update_time"
-  end
-
-  create_table "evo_core_agent_folders", id: :uuid, default: nil, force: :cascade do |t|
-    t.string "name", null: false
-    t.text "description"
-    t.timestamptz "created_at", default: -> { "now()" }
-    t.timestamptz "updated_at"
-  end
-
-  create_table "evo_core_agent_integrations", id: :uuid, default: -> { "uuid_generate_v4()" }, force: :cascade do |t|
-    t.uuid "agent_id", null: false
-    t.string "provider", limit: 100, null: false
-    t.jsonb "config", default: {}
-    t.datetime "created_at", precision: nil, default: -> { "CURRENT_TIMESTAMP" }, null: false
-    t.datetime "updated_at", precision: nil, default: -> { "CURRENT_TIMESTAMP" }, null: false
-    t.index ["agent_id"], name: "idx_evo_core_agent_integrations_agent"
-    t.index ["provider"], name: "idx_evo_core_agent_integrations_provider"
-    t.unique_constraint ["agent_id", "provider"], name: "unique_agent_integration"
-  end
-
-  create_table "evo_core_agents", id: :uuid, default: -> { "uuid_generate_v4()" }, force: :cascade do |t|
-    t.string "name", limit: 255, null: false
-    t.text "description"
-    t.string "type", limit: 10, null: false
-    t.string "model", limit: 255
-    t.uuid "api_key_id"
-    t.text "instruction"
-    t.string "card_url", limit: 1024, null: false
-    t.uuid "folder_id"
-    t.json "config", default: {}
-    t.datetime "created_at", precision: nil, default: -> { "CURRENT_TIMESTAMP" }, null: false
-    t.datetime "updated_at", precision: nil, default: -> { "CURRENT_TIMESTAMP" }, null: false
-    t.uuid "evolution_bot_id"
-    t.boolean "evolution_bot_sync", default: false, null: false
-    t.text "role"
-    t.text "goal"
-    t.index ["evolution_bot_id"], name: "idx_agents_evolution_bot_id"
-    t.index ["evolution_bot_sync"], name: "idx_agents_evolution_bot_sync"
-    t.index ["name"], name: "idx_evo_core_agents_name"
-    t.index ["name"], name: "idx_evo_core_agents_name_unique", unique: true
-    t.check_constraint "type::text = ANY (ARRAY['llm'::character varying::text, 'sequential'::character varying::text, 'parallel'::character varying::text, 'loop'::character varying::text, 'a2a'::character varying::text, 'workflow'::character varying::text, 'crew_ai'::character varying::text, 'task'::character varying::text, 'external'::character varying::text])", name: "check_agent_type"
-  end
-
-  create_table "evo_core_api_keys", id: :uuid, default: -> { "uuid_generate_v4()" }, force: :cascade do |t|
-    t.string "name", limit: 255, null: false
-    t.string "provider", limit: 255, null: false
-    t.text "key", null: false
-    t.boolean "is_active", default: true
-    t.timestamptz "created_at", default: -> { "now()" }
-    t.timestamptz "updated_at", default: -> { "now()" }
-    t.index ["is_active"], name: "idx_evo_core_api_keys_is_active"
-    t.index ["name"], name: "idx_evo_core_api_keys_name"
-    t.index ["name"], name: "idx_evo_core_api_keys_name_unique", unique: true
-  end
-
-  create_table "evo_core_custom_mcp_servers", id: :uuid, default: -> { "uuid_generate_v4()" }, force: :cascade do |t|
-    t.string "name", limit: 255, null: false
-    t.text "description"
-    t.string "url", limit: 1024, null: false
-    t.json "headers", null: false
-    t.integer "timeout", default: 0, null: false
-    t.integer "retry_count", default: 0, null: false
-    t.string "tags", limit: 255, default: [], null: false, array: true
-    t.json "tools", default: {}, null: false
-    t.timestamptz "created_at", default: -> { "now()" }
-    t.timestamptz "updated_at", default: -> { "now()" }
-    t.index ["name"], name: "idx_evo_core_custom_mcp_servers_name"
-    t.index ["name"], name: "idx_evo_core_custom_mcp_servers_name_unique", unique: true
-  end
-
-  create_table "evo_core_custom_tools", id: :uuid, default: -> { "uuid_generate_v4()" }, force: :cascade do |t|
-    t.string "name", limit: 255, null: false
-    t.text "description"
-    t.string "method", limit: 10, null: false
-    t.string "endpoint", limit: 1024, null: false
-    t.json "headers", null: false
-    t.json "path_params", null: false
-    t.json "query_params", null: false
-    t.json "body_params", null: false
-    t.json "error_handling", null: false
-    t.json "values", null: false
-    t.string "tags", limit: 255, default: [], null: false, array: true
-    t.string "examples", limit: 255, default: [], null: false, array: true
-    t.string "input_modes", limit: 255, default: [], null: false, array: true
-    t.string "output_modes", limit: 255, default: [], null: false, array: true
-    t.timestamptz "created_at", default: -> { "now()" }
-    t.timestamptz "updated_at", default: -> { "now()" }
-    t.index ["name"], name: "idx_evo_core_custom_tools_name"
-    t.index ["name"], name: "idx_evo_core_custom_tools_name_unique", unique: true
-  end
-
-  create_table "evo_core_folder_shares", id: :uuid, default: -> { "uuid_generate_v4()" }, force: :cascade do |t|
-    t.uuid "folder_id"
-    t.uuid "shared_by_user_id"
-    t.string "shared_with_email", limit: 255, null: false
-    t.uuid "shared_with_user_id"
-    t.string "permission_level", limit: 5, null: false
-    t.boolean "is_active", default: true, null: false
-    t.datetime "created_at", precision: nil, default: -> { "CURRENT_TIMESTAMP" }, null: false
-    t.datetime "updated_at", precision: nil, default: -> { "CURRENT_TIMESTAMP" }, null: false
-    t.index ["folder_id"], name: "idx_evo_core_folder_shares_folder_id"
-    t.index ["shared_by_user_id"], name: "idx_evo_core_folder_shares_shared_by_user_id"
-    t.index ["shared_with_user_id"], name: "idx_evo_core_folder_shares_shared_with_user_id"
-    t.check_constraint "permission_level::text = ANY (ARRAY['read'::text, 'write'::text])", name: "check_permission_level"
-  end
-
-  create_table "evo_core_folders", id: :uuid, default: -> { "uuid_generate_v4()" }, force: :cascade do |t|
-    t.string "name", limit: 255, null: false
-    t.text "description"
-    t.datetime "created_at", precision: nil, default: -> { "CURRENT_TIMESTAMP" }, null: false
-    t.datetime "updated_at", precision: nil, default: -> { "CURRENT_TIMESTAMP" }, null: false
-    t.index ["name"], name: "idx_evo_core_folders_name"
-    t.index ["name"], name: "idx_evo_core_folders_name_unique", unique: true
-  end
-
-  create_table "evo_core_mcp_servers", id: :uuid, default: -> { "uuid_generate_v4()" }, force: :cascade do |t|
-    t.string "name", limit: 255, null: false
-    t.text "description"
-    t.string "config_type", limit: 10, null: false
-    t.json "config_json", null: false
-    t.json "environments", null: false
-    t.json "tools", null: false
-    t.string "type", limit: 10, null: false
-    t.timestamptz "created_at", default: -> { "now()" }
-    t.timestamptz "updated_at", default: -> { "now()" }
-    t.index ["name"], name: "idx_evo_core_mcp_servers_name", unique: true
-    t.check_constraint "config_type::text = ANY (ARRAY['studio'::text, 'sse'::text])", name: "check_mcp_server_config_type"
-    t.check_constraint "type::text = ANY (ARRAY['official'::text, 'community'::text])", name: "check_mcp_server_type"
-  end
-
-  create_table "evo_core_schema_community_migrations", primary_key: "version", id: :bigint, default: nil, force: :cascade do |t|
-    t.boolean "dirty", null: false
-  end
-
   create_table "facebook_comment_moderations", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
     t.uuid "conversation_id", null: false
     t.uuid "message_id", null: false
@@ -721,17 +611,6 @@ ActiveRecord::Schema[7.1].define(version: 9025_08_19_224901) do
     t.index ["moderation_type"], name: "index_facebook_comment_moderations_on_moderation_type"
     t.index ["status", "moderation_type"], name: "idx_on_status_moderation_type_4dd0516d2b"
     t.index ["status"], name: "index_facebook_comment_moderations_on_status"
-  end
-
-  create_table "features", id: :uuid, default: nil, force: :cascade do |t|
-    t.string "name", null: false
-    t.string "key", null: false
-    t.text "description"
-    t.boolean "is_active"
-    t.timestamptz "created_at", default: -> { "now()" }
-    t.timestamptz "updated_at"
-
-    t.unique_constraint ["key"], name: "features_key_key"
   end
 
   create_table "inactivity_action_executions", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
@@ -782,6 +661,8 @@ ActiveRecord::Schema[7.1].define(version: 9025_08_19_224901) do
     t.string "business_name"
     t.string "display_name"
     t.string "default_conversation_status"
+    t.uuid "greeting_message_template_id"
+    t.uuid "out_of_office_message_template_id"
     t.index ["channel_id", "channel_type"], name: "index_inboxes_on_channel_id_and_channel_type"
     t.index ["default_conversation_status"], name: "index_inboxes_on_default_conversation_status"
   end
@@ -818,6 +699,23 @@ ActiveRecord::Schema[7.1].define(version: 9025_08_19_224901) do
     t.index ["title"], name: "index_labels_on_title", unique: true
   end
 
+  create_table "macro_executions", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
+    t.uuid "macro_id", null: false
+    t.uuid "conversation_id", null: false
+    t.uuid "user_id", null: false
+    t.integer "status", default: 0, null: false
+    t.text "error_message"
+    t.jsonb "actions_result", default: []
+    t.datetime "completed_at"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["conversation_id", "created_at"], name: "index_macro_executions_on_conversation_id_and_created_at"
+    t.index ["conversation_id"], name: "index_macro_executions_on_conversation_id"
+    t.index ["macro_id"], name: "index_macro_executions_on_macro_id"
+    t.index ["status"], name: "index_macro_executions_on_status"
+    t.index ["user_id"], name: "index_macro_executions_on_user_id"
+  end
+
   create_table "macros", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
     t.string "name", null: false
     t.integer "visibility", default: 0
@@ -840,8 +738,8 @@ ActiveRecord::Schema[7.1].define(version: 9025_08_19_224901) do
   end
 
   create_table "message_templates", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
-    t.string "channel_type", null: false
-    t.uuid "channel_id", null: false
+    t.string "channel_type"
+    t.uuid "channel_id"
     t.string "name", null: false
     t.text "content", null: false
     t.string "language", default: "pt_BR"
@@ -856,10 +754,13 @@ ActiveRecord::Schema[7.1].define(version: 9025_08_19_224901) do
     t.boolean "active", default: true
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.string "external_legacy_id"
     t.index ["category"], name: "idx_templates_by_category"
     t.index ["channel_type", "channel_id", "active"], name: "idx_templates_active_by_channel"
     t.index ["channel_type", "channel_id"], name: "index_message_templates_on_channel"
+    t.index ["external_legacy_id"], name: "idx_message_templates_external_legacy_id", unique: true, where: "(external_legacy_id IS NOT NULL)"
     t.index ["name", "channel_type", "channel_id"], name: "idx_templates_lookup"
+    t.index ["name"], name: "idx_message_templates_global_name", unique: true, where: "(channel_id IS NULL)"
     t.index ["name"], name: "idx_templates_by_name"
     t.index ["template_type"], name: "idx_templates_by_type"
   end
@@ -883,6 +784,7 @@ ActiveRecord::Schema[7.1].define(version: 9025_08_19_224901) do
     t.text "processed_message_content"
     t.float "sentiment_score", default: 0.0
     t.integer "sentiment", default: 0, null: false
+    t.integer "source", default: 0, null: false
     t.index ["content"], name: "index_messages_on_content", opclass: :gin_trgm_ops, using: :gin
     t.index ["conversation_id", "created_at"], name: "idx_messages_conv_created_desc", order: { created_at: :desc }
     t.index ["conversation_id", "created_at"], name: "idx_messages_conv_created_incoming_desc", order: { created_at: :desc }, where: "(message_type = 0)"
@@ -985,6 +887,27 @@ ActiveRecord::Schema[7.1].define(version: 9025_08_19_224901) do
     t.index ["uid"], name: "index_oauth_applications_on_uid", unique: true
   end
 
+  create_table "pipeline_item_products", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
+    t.uuid "pipeline_item_id", null: false
+    t.uuid "product_id", null: false
+    t.uuid "product_variant_id"
+    t.integer "quantity", default: 1, null: false
+    t.decimal "locked_unit_price", precision: 10, scale: 2, null: false
+    t.string "currency", limit: 3, null: false
+    t.text "notes"
+    t.string "created_by_type", limit: 50
+    t.uuid "created_by_id"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["created_by_type", "created_by_id"], name: "index_pipeline_item_products_on_creator"
+    t.index ["pipeline_item_id", "product_id", "product_variant_id"], name: "index_pipeline_item_products_unique_combo"
+    t.index ["pipeline_item_id"], name: "index_pipeline_item_products_on_pipeline_item_id"
+    t.index ["product_id"], name: "index_pipeline_item_products_on_product_id"
+    t.index ["product_variant_id"], name: "index_pipeline_item_products_on_product_variant_id"
+    t.check_constraint "locked_unit_price >= 0::numeric", name: "pipeline_item_products_locked_unit_price_non_negative"
+    t.check_constraint "quantity > 0", name: "pipeline_item_products_quantity_positive"
+  end
+
   create_table "pipeline_items", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
     t.uuid "pipeline_id", null: false
     t.uuid "conversation_id"
@@ -996,9 +919,11 @@ ActiveRecord::Schema[7.1].define(version: 9025_08_19_224901) do
     t.datetime "created_at", precision: nil, null: false
     t.datetime "updated_at", precision: nil, null: false
     t.uuid "contact_id"
-    t.index ["contact_id", "pipeline_id"], name: "index_pipeline_items_on_contact_id_and_pipeline_id", unique: true, where: "(conversation_id IS NULL)"
+    t.index "(((custom_fields -> 'lead_metadata'::text) ->> 'form_slug'::text))", name: "index_pipeline_items_on_lead_form_slug", where: "(((custom_fields -> 'lead_metadata'::text) ->> 'form_slug'::text) IS NOT NULL)"
+    t.index "pipeline_id, (((custom_fields -> 'purchase'::text) ->> 'provider'::text)), (((custom_fields -> 'purchase'::text) ->> 'purchase_id'::text))", name: "index_pipeline_items_on_purchase_identity", unique: true, where: "(((custom_fields -> 'purchase'::text) ->> 'purchase_id'::text) IS NOT NULL)"
+    t.index ["contact_id", "pipeline_id"], name: "idx_pipeline_items_active_contact_per_pipeline", unique: true, where: "((conversation_id IS NULL) AND (completed_at IS NULL))"
     t.index ["contact_id"], name: "index_pipeline_items_on_contact_id"
-    t.index ["conversation_id", "pipeline_id"], name: "index_pipeline_items_on_conversation_id_and_pipeline_id", unique: true, where: "(conversation_id IS NOT NULL)"
+    t.index ["conversation_id", "pipeline_id"], name: "idx_pipeline_items_active_conversation_per_pipeline", unique: true, where: "((conversation_id IS NOT NULL) AND (completed_at IS NULL))"
     t.index ["custom_fields"], name: "index_pipeline_items_on_custom_fields", using: :gin
     t.index ["pipeline_id"], name: "index_pipeline_items_on_pipeline_id"
     t.index ["pipeline_stage_id"], name: "index_pipeline_items_on_pipeline_stage_id"
@@ -1051,7 +976,6 @@ ActiveRecord::Schema[7.1].define(version: 9025_08_19_224901) do
     t.integer "position", default: 0, null: false
     t.integer "depth", default: 0, null: false
     t.index ["assigned_to_id", "status", "due_date"], name: "index_pipeline_tasks_on_assigned_to_id_and_status_and_due_date"
-    t.index ["assigned_to_id"], name: "index_pipeline_tasks_on_assigned_to_id"
     t.index ["created_by_id"], name: "index_pipeline_tasks_on_created_by_id"
     t.index ["due_date"], name: "index_pipeline_tasks_on_due_date"
     t.index ["parent_task_id", "position"], name: "index_pipeline_tasks_on_parent_task_id_and_position"
@@ -1060,6 +984,15 @@ ActiveRecord::Schema[7.1].define(version: 9025_08_19_224901) do
     t.index ["pipeline_item_id", "status"], name: "index_pipeline_tasks_on_pipeline_item_id_and_status"
     t.index ["pipeline_item_id"], name: "index_pipeline_tasks_on_pipeline_item_id"
     t.index ["status", "due_date"], name: "index_pipeline_tasks_on_pending_status_and_due_date", where: "(status = 0)"
+  end
+
+  create_table "pipeline_teams", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
+    t.uuid "pipeline_id", null: false
+    t.uuid "team_id", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["pipeline_id", "team_id"], name: "index_pipeline_teams_on_pipeline_id_and_team_id", unique: true
+    t.index ["team_id"], name: "index_pipeline_teams_on_team_id"
   end
 
   create_table "pipelines", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
@@ -1080,22 +1013,46 @@ ActiveRecord::Schema[7.1].define(version: 9025_08_19_224901) do
     t.index ["name"], name: "index_pipelines_on_name", unique: true
   end
 
-  create_table "plan_features", id: :uuid, default: nil, force: :cascade do |t|
-    t.uuid "plan_id", null: false
-    t.uuid "feature_id", null: false
-    t.string "value", null: false
-    t.timestamptz "created_at", default: -> { "now()" }
-    t.timestamptz "updated_at"
+  create_table "product_variants", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
+    t.uuid "product_id", null: false
+    t.string "name", limit: 255, null: false
+    t.string "sku", limit: 100
+    t.decimal "price_override", precision: 10, scale: 2
+    t.integer "stock_quantity"
+    t.jsonb "attributes_data", default: {}, null: false
+    t.integer "position", default: 0, null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["attributes_data"], name: "index_product_variants_on_attributes_data", using: :gin
+    t.index ["product_id", "name"], name: "index_product_variants_on_product_and_name", unique: true
+    t.index ["product_id"], name: "index_product_variants_on_product_id"
+    t.index ["sku"], name: "index_product_variants_on_sku", unique: true, where: "(sku IS NOT NULL)"
+    t.check_constraint "price_override IS NULL OR price_override >= 0::numeric", name: "product_variants_price_override_non_negative"
+    t.check_constraint "stock_quantity IS NULL OR stock_quantity >= 0", name: "product_variants_stock_quantity_non_negative"
   end
 
-  create_table "plans", id: :uuid, default: nil, force: :cascade do |t|
-    t.string "name", null: false
+  create_table "products", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
+    t.string "name", limit: 255, null: false
+    t.string "slug", limit: 255
+    t.string "kind", limit: 20, default: "physical", null: false
     t.text "description"
-    t.boolean "is_active"
-    t.timestamptz "created_at", default: -> { "now()" }
-    t.timestamptz "updated_at"
-
-    t.unique_constraint ["name"], name: "plans_name_key"
+    t.string "sku", limit: 100
+    t.decimal "default_price", precision: 10, scale: 2, default: "0.0", null: false
+    t.string "currency", limit: 3, default: "BRL", null: false
+    t.string "purchase_url", limit: 2048
+    t.string "status", limit: 20, default: "active", null: false
+    t.integer "stock_quantity"
+    t.jsonb "metadata", default: {}, null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["kind"], name: "index_products_on_kind"
+    t.index ["metadata"], name: "index_products_on_metadata", using: :gin
+    t.index ["sku"], name: "index_products_on_sku", unique: true, where: "(sku IS NOT NULL)"
+    t.index ["status"], name: "index_products_on_status"
+    t.check_constraint "default_price >= 0::numeric", name: "products_default_price_non_negative"
+    t.check_constraint "kind::text = ANY (ARRAY['physical'::character varying::text, 'digital'::character varying::text])", name: "products_kind_check"
+    t.check_constraint "status::text = ANY (ARRAY['active'::character varying::text, 'inactive'::character varying::text, 'draft'::character varying::text])", name: "products_status_check"
+    t.check_constraint "stock_quantity IS NULL OR stock_quantity >= 0", name: "products_stock_quantity_non_negative"
   end
 
   create_table "reporting_events", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
@@ -1229,13 +1186,36 @@ ActiveRecord::Schema[7.1].define(version: 9025_08_19_224901) do
     t.index ["status"], name: "index_scheduled_actions_on_status"
   end
 
-  create_table "sessions", primary_key: ["app_name", "user_id", "id"], force: :cascade do |t|
-    t.string "app_name", limit: 128, null: false
-    t.string "user_id", limit: 128, null: false
-    t.string "id", limit: 128, null: false
-    t.jsonb "state", null: false
-    t.datetime "create_time", precision: nil, null: false
-    t.datetime "update_time", precision: nil, null: false
+  create_table "setup_survey_responses", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
+    t.uuid "user_id", null: false
+    t.string "team_size"
+    t.string "daily_volume"
+    t.string "main_channel"
+    t.string "main_channel_other"
+    t.string "uses_ai"
+    t.string "biggest_pain"
+    t.string "crm_experience"
+    t.string "main_goal"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.datetime "onboarding_pushed_at"
+    t.index ["user_id"], name: "index_setup_survey_responses_on_user_id", unique: true
+  end
+
+  create_table "stage_inactivity_executions", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
+    t.uuid "pipeline_item_id", null: false
+    t.uuid "pipeline_stage_id", null: false
+    t.string "rule_id", null: false
+    t.string "base"
+    t.string "action"
+    t.datetime "executed_at", null: false
+    t.jsonb "action_config", default: {}
+    t.text "message_sent"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["executed_at"], name: "index_stage_inactivity_executions_on_executed_at"
+    t.index ["pipeline_item_id", "rule_id"], name: "index_stage_inactivity_on_item_and_rule", unique: true
+    t.index ["pipeline_item_id"], name: "index_stage_inactivity_executions_on_pipeline_item_id"
   end
 
   create_table "stage_movements", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
@@ -1313,13 +1293,6 @@ ActiveRecord::Schema[7.1].define(version: 9025_08_19_224901) do
     t.index ["role_id"], name: "index_user_roles_on_role_id"
     t.index ["user_id", "role_id"], name: "index_user_roles_unique", unique: true
     t.index ["user_id"], name: "index_user_roles_on_user_id"
-  end
-
-  create_table "user_states", primary_key: ["app_name", "user_id"], force: :cascade do |t|
-    t.string "app_name", limit: 128, null: false
-    t.string "user_id", limit: 128, null: false
-    t.jsonb "state", null: false
-    t.datetime "update_time", precision: nil, null: false
   end
 
   create_table "user_tours", force: :cascade do |t|
@@ -1410,21 +1383,23 @@ ActiveRecord::Schema[7.1].define(version: 9025_08_19_224901) do
   add_foreign_key "active_storage_attachments", "active_storage_blobs", column: "blob_id"
   add_foreign_key "active_storage_variant_records", "active_storage_blobs", column: "blob_id"
   add_foreign_key "agent_bot_inboxes", "agent_bots", column: "facebook_comment_agent_bot_id", on_delete: :nullify
+  add_foreign_key "ai_agent_products", "products", on_delete: :cascade
+  add_foreign_key "automation_rule_runs", "automation_rules", on_delete: :cascade
   add_foreign_key "contact_companies", "contacts"
   add_foreign_key "contact_companies", "contacts", column: "company_id"
+  add_foreign_key "crm_forms", "pipeline_stages", column: "default_stage_id"
+  add_foreign_key "crm_forms", "pipelines", column: "default_pipeline_id"
   add_foreign_key "data_privacy_consents", "users"
-  add_foreign_key "events", "sessions", column: ["app_name", "user_id", "session_id"], primary_key: ["app_name", "user_id", "id"], name: "events_app_name_user_id_session_id_fkey", on_delete: :cascade
-  add_foreign_key "evo_agent_processor_execution_metrics", "evo_core_agents", column: "agent_id", name: "evo_agent_processor_execution_metrics_agent_id_fkey", on_delete: :cascade
-  add_foreign_key "evo_ai_agent_processor_execution_metrics", "evo_core_agents", column: "agent_id", name: "evo_ai_agent_processor_execution_metrics_agent_id_fkey", on_delete: :cascade
-  add_foreign_key "evo_core_agent_integrations", "evo_core_agents", column: "agent_id", name: "evo_core_agent_integrations_agent_id_fkey", on_delete: :cascade
-  add_foreign_key "evo_core_agents", "evo_core_api_keys", column: "api_key_id", name: "evo_core_agents_api_key_id_fkey", on_delete: :nullify
-  add_foreign_key "evo_core_agents", "evo_core_folders", column: "folder_id", name: "evo_core_agents_folder_id_fkey", on_delete: :nullify
-  add_foreign_key "evo_core_folder_shares", "evo_core_folders", column: "folder_id", name: "evo_core_folder_shares_folder_id_fkey", on_delete: :cascade
   add_foreign_key "facebook_comment_moderations", "conversations"
   add_foreign_key "facebook_comment_moderations", "messages"
-  add_foreign_key "facebook_comment_moderations", "users", column: "moderated_by_id"
+  add_foreign_key "macro_executions", "conversations"
+  add_foreign_key "macro_executions", "macros"
+  add_foreign_key "macro_executions", "users"
   add_foreign_key "oauth_access_grants", "oauth_applications", column: "application_id"
   add_foreign_key "oauth_access_tokens", "oauth_applications", column: "application_id"
+  add_foreign_key "pipeline_item_products", "pipeline_items", on_delete: :cascade
+  add_foreign_key "pipeline_item_products", "product_variants", on_delete: :restrict
+  add_foreign_key "pipeline_item_products", "products", on_delete: :restrict
   add_foreign_key "pipeline_items", "contacts"
   add_foreign_key "pipeline_items", "conversations"
   add_foreign_key "pipeline_items", "pipeline_stages"
@@ -1432,24 +1407,20 @@ ActiveRecord::Schema[7.1].define(version: 9025_08_19_224901) do
   add_foreign_key "pipeline_service_definitions", "pipelines"
   add_foreign_key "pipeline_tasks", "pipeline_items"
   add_foreign_key "pipeline_tasks", "pipeline_tasks", column: "parent_task_id"
-  add_foreign_key "pipeline_tasks", "users", column: "assigned_to_id"
-  add_foreign_key "pipeline_tasks", "users", column: "created_by_id"
-  add_foreign_key "plan_features", "features", name: "plan_features_feature_id_fkey"
-  add_foreign_key "plan_features", "plans", name: "plan_features_plan_id_fkey"
+  add_foreign_key "pipeline_teams", "pipelines"
+  add_foreign_key "pipeline_teams", "teams"
+  add_foreign_key "product_variants", "products", on_delete: :cascade
   add_foreign_key "role_permissions_actions", "roles"
   add_foreign_key "scheduled_action_execution_logs", "scheduled_actions"
   add_foreign_key "scheduled_action_notifications", "scheduled_actions", on_delete: :cascade
-  add_foreign_key "scheduled_action_notifications", "users", on_delete: :cascade
-  add_foreign_key "scheduled_action_templates", "users", column: "created_by", on_delete: :cascade
   add_foreign_key "scheduled_actions", "contacts", on_delete: :cascade
   add_foreign_key "scheduled_actions", "conversations", on_delete: :cascade
-  add_foreign_key "scheduled_actions", "users", column: "created_by", on_delete: :cascade
-  add_foreign_key "scheduled_actions", "users", column: "notify_user_id", on_delete: :nullify
+  add_foreign_key "setup_survey_responses", "users"
+  add_foreign_key "stage_inactivity_executions", "pipeline_items", on_delete: :cascade
   add_foreign_key "stage_movements", "pipeline_items"
   add_foreign_key "stage_movements", "pipeline_stages", column: "from_stage_id"
   add_foreign_key "stage_movements", "pipeline_stages", column: "to_stage_id"
   add_foreign_key "user_roles", "roles"
   add_foreign_key "user_roles", "users"
   add_foreign_key "user_roles", "users", column: "granted_by_id"
-  add_foreign_key "user_tours", "users"
 end

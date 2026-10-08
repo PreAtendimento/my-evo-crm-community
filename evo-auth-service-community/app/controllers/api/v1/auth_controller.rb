@@ -3,15 +3,29 @@ class Api::V1::AuthController < Api::BaseController
   include AuthHelper
   include LicensingSetupConcern
 
-  skip_before_action :authenticate_request!, only: [:login, :refresh, :register, :forgot_password, :reset_password, :validate, :verify_mfa, :confirmation]
+  skip_before_action :authenticate_request!, only: [:login, :refresh, :register, :forgot_password, :reset_password, :validate, :verify_mfa, :confirmation, :resend_confirmation]
 
   # Login
   def login
     # Tenta encontrar o usuário pelo email
     email = params[:email]&.strip&.downcase
     user = User.from_email(email)
-    
+
     if user&.valid_password?(params[:password])
+      # Email-confirmation barrier. Posture derives from SMTP presence (8.3b);
+      # accounts that never received confirmation instructions (created while
+      # the posture was off — confirmation_sent_at nil) are grandfathered in:
+      # no retroactive lockout. active_for_authentication? is kept so the
+      # enterprise allow-unconfirmed override still neutralizes the barrier.
+      if require_email_confirmation? && user.confirmation_sent_at.present? && !user.active_for_authentication?
+        return error_response(
+          'EMAIL_NOT_CONFIRMED',
+          'Confirme seu e-mail para acessar.',
+          details: [{ email: user.email }],
+          status: :forbidden
+        )
+      end
+
       if user.mfa_enabled?
         render_mfa_required(user)
       else
@@ -20,6 +34,18 @@ class Api::V1::AuthController < Api::BaseController
     else
       render_invalid_credentials
     end
+  end
+
+  # Reenvia o e-mail de confirmação. PÚBLICO (o user não-confirmado não loga, então
+  # não pode usar o endpoint autenticado de profiles). Resposta genérica anti-enumeração.
+  def resend_confirmation
+    email = params[:email]&.strip&.downcase
+    user = User.from_email(email) if email.present?
+    user.send_confirmation_instructions if user && !user.confirmed?
+    success_response(
+      data: {},
+      message: 'Se o e-mail existir e não estiver confirmado, enviamos um novo link.'
+    )
   end
 
   def logout

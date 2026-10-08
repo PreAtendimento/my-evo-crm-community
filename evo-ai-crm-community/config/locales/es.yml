@@ -159,6 +159,8 @@ es:
         removed: '%{user_name} eliminó a %{labels}'
       muted: '%{user_name} ha silenciado la conversación'
       unmuted: '%{user_name} ha anulado el silenciado de la conversación'
+      bot_handoff: 'El bot transfirió la conversación a un agente'
+      human_handoff: 'El agente devolvió la conversación al bot'
       auto_resolution_message: 'Resolviendo la conversación, ya que ha estado inactiva durante un tiempo. Por favor, inicia una nueva conversación si necesitas más ayuda.'
     templates:
       greeting_message_body: '%{account_name} normalmente responde en unas pocas horas.'
@@ -272,6 +274,13 @@ es:
       other: '%{count} segundos'
   automation:
     system_name: 'Automation System'
+  widget:
+    pre_chat_form:
+      field_required: '%{field} es obligatorio'
+      message_required: 'El mensaje es obligatorio'
+      invalid_format: 'Formato inválido'
+      invalid_email: 'Email inválido'
+      invalid_phone: 'Teléfono inválido. Use formato internacional (ej. +5491112345678)'
   crm:
     no_message: 'No messages in conversation'
     attachment: '[Attachment: %{type}]'

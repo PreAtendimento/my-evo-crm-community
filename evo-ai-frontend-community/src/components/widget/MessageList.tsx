@@ -1,6 +1,6 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useMemo } from 'react';
 import { formatDistanceToNow } from 'date-fns';
-import { ptBR } from 'date-fns/locale';
+import { enUS, es, fr, it, pt, ptBR } from 'date-fns/locale';
 import { useLanguage } from '@/hooks/useLanguage';
 
 import type { AttachmentFile } from '@/types/core';
@@ -36,9 +36,12 @@ export interface MessageItem {
     text: string;
     sender?: string;
     type?: 'in' | 'out';
+    unresolved?: boolean;
   };
   contentType?: string;
   submittedEmail?: string;
+  items?: Array<{ title?: string; value?: string }>;
+  submittedValues?: any;
   contentAttributes?: {
     email?: {
       html_content?: {
@@ -60,6 +63,7 @@ interface MessageListProps {
   inboundAvatarUrl?: string;
   onRetry?: (id: string, text: string) => void;
   onReply?: (message: MessageItem) => void;
+  onSelectOption?: (message: MessageItem, item: { title?: string; value?: string }) => void;
   widgetColor?: string;
   onLoadMore?: () => void;
   isLoadingMore?: boolean;
@@ -72,15 +76,21 @@ const MessageList: React.FC<MessageListProps> = ({
   inboundAvatarUrl,
   onRetry,
   onReply,
+  onSelectOption,
   widgetColor = '#00d4aa',
   onLoadMore,
   isLoadingMore = false,
   hasMore = true,
   onEmailSubmitted,
 }) => {
-  const { t } = useLanguage('widget');
+  const { t, currentLanguage } = useLanguage('widget');
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const shouldScrollToBottom = useRef(true);
+
+  const dateLocale = useMemo(() => {
+    const map: Record<string, typeof enUS> = { en: enUS, es, fr, it, pt, 'pt-BR': ptBR };
+    return map[currentLanguage] ?? enUS;
+  }, [currentLanguage]);
 
   const sanitizeMessageHTML = (html: string): string => {
     if (!html) return '';
@@ -93,6 +103,26 @@ const MessageList: React.FC<MessageListProps> = ({
   };
 
   const hasHtmlTags = (text: string): boolean => /<\/?[a-z][\s\S]*>/i.test(text);
+
+  const stripSelectFromText = (text: string, items: Array<{ title?: string }>) => {
+    if (!text) return '';
+    if (!items?.length) return text;
+
+    const lines = text.split('\n');
+    let removed = 0;
+
+    while (lines.length > 0) {
+      const last = lines[lines.length - 1]?.trim() || '';
+      const m = last.match(/^(\d+)\.\s+(.*)$/);
+      if (!m) break;
+      lines.pop();
+      removed += 1;
+    }
+
+    if (removed === 0) return text;
+    const pruned = lines.join('\n').trim();
+    return pruned || text;
+  };
 
   // Handle scroll event for loading more messages
   useEffect(() => {
@@ -149,6 +179,10 @@ const MessageList: React.FC<MessageListProps> = ({
       {items.map(m => {
         const hasAvatar = !!(m.avatarUrl || inboundAvatarUrl);
         const isEmailCollect = m.contentType === 'input_email';
+        const isSelect =
+          m.contentType === 'input_select' && Array.isArray(m.items) && m.items.length > 0;
+        const selectDisabled = isSelect && !!m.submittedValues;
+        const selectText = isSelect ? stripSelectFromText(m.text, m.items || []) : m.text;
 
         // Render email collect input as a special interactive message
         if (isEmailCollect) {
@@ -287,7 +321,7 @@ const MessageList: React.FC<MessageListProps> = ({
                 )}
 
                 {/* Text content */}
-                {m.text && (
+                {selectText && (
                   <div className={m.attachments?.length ? 'mt-2' : ''}>
                     {/* Render HTML for incoming email messages */}
                     {m.contentType === 'incoming_email' &&
@@ -307,15 +341,40 @@ const MessageList: React.FC<MessageListProps> = ({
                         }}
                       />
                     ) : (
-                      hasHtmlTags(m.text) ? (
+                      hasHtmlTags(selectText) ? (
                         <div
                           className="whitespace-pre-wrap break-words rich-content"
-                          dangerouslySetInnerHTML={{ __html: sanitizeMessageHTML(m.text) }}
+                          dangerouslySetInnerHTML={{ __html: sanitizeMessageHTML(selectText) }}
                         />
                       ) : (
-                        <div className="whitespace-pre-wrap break-words">{m.text}</div>
+                        <div className="whitespace-pre-wrap break-words">{selectText}</div>
                       )
                     )}
+                  </div>
+                )}
+
+                {isSelect && (
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {m.items?.map((item, idx) => {
+                      const title = (item?.title || '').trim();
+                      if (!title) return null;
+
+                      return (
+                        <button
+                          key={`${m.id}-opt-${idx}`}
+                          type="button"
+                          disabled={selectDisabled || !onSelectOption}
+                          onClick={() => onSelectOption?.(m, item)}
+                          className={`px-3 py-2 rounded-md border text-[13px] leading-tight transition-colors ${
+                            selectDisabled || !onSelectOption
+                              ? 'bg-slate-100 border-slate-200 text-slate-400 cursor-not-allowed'
+                              : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                          }`}
+                        >
+                          {title}
+                        </button>
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -325,7 +384,7 @@ const MessageList: React.FC<MessageListProps> = ({
               >
                 <span className="text-[10px] text-slate-400">
                   {m.ts
-                    ? formatDistanceToNow(new Date(m.ts), { addSuffix: true, locale: ptBR })
+                    ? formatDistanceToNow(new Date(m.ts), { addSuffix: true, locale: dateLocale })
                     : ''}
                 </span>
                 {m.type === 'out' && m.status === 'sending' && (

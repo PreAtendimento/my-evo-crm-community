@@ -7,6 +7,10 @@ class Whatsapp::Providers::EvolutionGoService < Whatsapp::Providers::BaseService
 
     if message.attachments.present?
       send_attachment_message(phone_number, message)
+    elsif message.content_type == 'input_select'
+      send_interactive_message(phone_number, message)
+    elsif message.content_type == 'cards'
+      send_carousel_message(phone_number, message)
     elsif message.content.present?
       send_text_message(phone_number, message)
     else
@@ -204,6 +208,162 @@ class Whatsapp::Providers::EvolutionGoService < Whatsapp::Providers::BaseService
     whatsapp_channel.provider_config['instance_name']
   end
 
+  def send_interactive_message(phone_number, message)
+    clean_number = phone_number.delete('+')
+    items = filter_valid_items(message.content_attributes&.dig('items') || [])
+
+    if items.empty?
+      Rails.logger.warn "[Evolution Go] Interactive message has no valid items, falling back to text"
+      return send_text_message(phone_number, message)
+    end
+
+    if items.length <= 3
+      send_button_message(clean_number, message, items)
+    else
+      send_list_message(clean_number, message, items)
+    end
+  rescue StandardError => e
+    Rails.logger.error "[Evolution Go] Interactive message failed (#{e.message}), falling back to text"
+    send_text_message(phone_number, message)
+  end
+
+  def send_button_message(clean_number, message, items)
+    buttons = items.map do |item|
+      { type: 'reply', displayText: item['title'].to_s.truncate(20), id: item['value'].to_s }
+    end
+
+    content = interactive_body_text(message)
+
+    body = {
+      number: clean_number,
+      title: content.truncate(60),
+      description: content,
+      footer: 'Evo CRM',
+      buttons: buttons,
+      delay: 0
+    }
+
+    quoted_info = build_quoted_info(message)
+    body[:quoted] = quoted_info if quoted_info.present?
+
+    Rails.logger.info "[Evolution Go] Sending button message to #{clean_number} with #{buttons.length} buttons"
+
+    response = HTTParty.post(
+      "#{api_base_path}/send/button",
+      headers: instance_headers,
+      body: body.to_json
+    )
+
+    process_evolution_go_response(response)
+  end
+
+  def send_list_message(clean_number, message, items)
+    rows = items.first(10).map do |item|
+      { rowId: item['value'].to_s, title: item['title'].to_s.truncate(24), description: '' }
+    end
+
+    if items.length > 10
+      Rails.logger.warn "[Evolution Go] List truncated from #{items.length} to 10 rows (WhatsApp limit)"
+    end
+
+    content = interactive_body_text(message)
+
+    body = {
+      number: clean_number,
+      title: content.truncate(60),
+      description: content,
+      buttonText: I18n.t('whatsapp.interactive.list_button', default: 'Menu'),
+      footerText: 'Evo CRM',
+      sections: [{ title: I18n.t('whatsapp.interactive.list_section', default: 'Options'), rows: rows }],
+      delay: 0
+    }
+
+    quoted_info = build_quoted_info(message)
+    body[:quoted] = quoted_info if quoted_info.present?
+
+    Rails.logger.info "[Evolution Go] Sending list message to #{clean_number} with #{rows.length} rows"
+
+    response = HTTParty.post(
+      "#{api_base_path}/send/list",
+      headers: instance_headers,
+      body: body.to_json
+    )
+
+    process_evolution_go_response(response)
+  end
+
+  def send_carousel_message(phone_number, message)
+    clean_number = phone_number.delete('+')
+
+    # CRM armazena cards em content_attributes.items (validado por ContentAttributeValidator)
+    items = message.content_attributes&.dig('items') || message.items || []
+
+    if items.empty?
+      Rails.logger.warn "[Evolution Go] Carousel message has no items, falling back to text"
+      return send_text_message(phone_number, message)
+    end
+
+    cards = items.map do |item|
+      item = item.with_indifferent_access
+      actions = item[:actions] || []
+
+      {
+        header: {
+          title: (item[:title] || '').to_s.truncate(60),
+          imageUrl: item[:media_url].to_s
+        },
+        body: {
+          text: (item[:description] || '').to_s.truncate(1024)
+        },
+        footer: 'Evo CRM',
+        buttons: actions.map do |action|
+          action = action.with_indifferent_access
+          btn_type = (action[:type] || 'reply').to_s.upcase
+          btn = {
+            type: btn_type,
+            displayText: (action[:text] || '').to_s.truncate(20),
+            id: (action[:payload] || action[:uri] || '').to_s
+          }
+          btn[:copyCode] = action[:payload].to_s if btn_type == 'COPY'
+          btn.compact
+        end
+      }
+    end
+
+    content = html_to_whatsapp(message.content.to_s)
+
+    body = {
+      number: clean_number,
+      body: content.presence || '',
+      footer: 'Evo CRM',
+      cards: cards,
+      delay: 0
+    }
+
+    quoted_info = build_quoted_info(message)
+    body[:quoted] = quoted_info if quoted_info.present?
+
+    Rails.logger.info "[Evolution Go] Sending carousel with #{cards.length} cards to #{clean_number}"
+
+    response = HTTParty.post(
+      "#{api_base_path}/send/carousel",
+      headers: instance_headers,
+      body: body.to_json
+    )
+
+    process_evolution_go_response(response)
+  end
+
+  def filter_valid_items(items)
+    return [] unless items.is_a?(Array)
+
+    valid, rejected = items.partition { |item| item['title'].present? && item['value'].present? }
+    if rejected.any?
+      Rails.logger.warn "[Evolution Go] Filtered #{rejected.length} items missing title or value"
+    end
+    valid
+  end
+
   def send_text_message(phone_number, message)
     clean_number = phone_number.delete('+')
     Rails.logger.info "[Evolution Go] Sending text message to #{phone_number} (cleaned: #{clean_number})"
@@ -238,12 +398,15 @@ class Whatsapp::Providers::EvolutionGoService < Whatsapp::Providers::BaseService
 
   def send_attachment_message(phone_number, message)
     attachment = message.attachments.first
-    return unless attachment
+
+    unless attachment
+      Rails.logger.error "[Evolution Go] No attachment found for message #{message.id}"
+      return false
+    end
 
     Rails.logger.info "[Evolution Go] Sending #{attachment.file_type} message to #{phone_number}"
 
-    # Use direct S3 URL for media
-    media_url = generate_direct_s3_url(attachment)
+    media_url = generate_media_url(attachment)
 
     # Map file types to Evolution Go types
     evolution_go_type = map_file_type_to_evolution_go(attachment.file_type)
@@ -283,13 +446,15 @@ class Whatsapp::Providers::EvolutionGoService < Whatsapp::Providers::BaseService
         Rails.logger.info "[Evolution Go] Message sent successfully with ID: #{message_id}"
         return message_id
       else
+        # HTTP 200 is a delivered send: `true` (same contract as EvolutionService)
+        # keeps the caller from marking it failed.
         Rails.logger.warn "[Evolution Go] Message sent but no ID returned: #{parsed_response}"
         return true
       end
     end
 
     Rails.logger.error "[Evolution Go] Send failed: #{response.code} - #{response.body}"
-    false
+    raise "[Evolution Go] HTTP #{response.code}: #{response.body.to_s.truncate(300)}"
   end
 
   def map_file_type_to_evolution_go(file_type)
@@ -307,28 +472,17 @@ class Whatsapp::Providers::EvolutionGoService < Whatsapp::Providers::BaseService
     end
   end
 
-  def generate_direct_s3_url(attachment)
+  def generate_media_url(attachment)
     return attachment.file_url unless attachment.file.attached?
 
-    # Extract S3 details from existing signed URL
-    signed_url = attachment.download_url
+    # App-proxied by default (EVO-2006): a presigned S3/MinIO URL carries the
+    # STORAGE_ENDPOINT host inside the SigV4 signature, so an internal endpoint
+    # is unreachable by the Evolution Go container and cannot be rewritten.
+    # See BlobUrlOptions.outbound_media_url for the delivery-mode/TTL rules.
+    media_url = BlobUrlOptions.outbound_media_url(attachment.file.blob)
 
-    Rails.logger.info "[Evolution Go S3] Original signed URL: #{signed_url}"
-
-    # Try to extract bucket and key from the signed URL (flexible regex for different S3 providers)
-    if signed_url =~ %r{https://([^/]+)/([^?]+)}
-      host = Regexp.last_match(1)
-      key = Regexp.last_match(2)
-
-      # Create direct public URL (without signing parameters)
-      direct_url = "https://#{host}/#{key}"
-
-      Rails.logger.info "[Evolution Go S3] Direct URL: #{direct_url}"
-      direct_url
-    else
-      Rails.logger.warn "[Evolution Go S3] Could not extract S3 info from URL: #{signed_url}"
-      signed_url
-    end
+    Rails.logger.info "[Evolution Go] Outbound media URL with 15-minute TTL (host: #{BlobUrlOptions.effective_url_options[:host]})"
+    media_url
   end
 
   def build_quoted_info(message)

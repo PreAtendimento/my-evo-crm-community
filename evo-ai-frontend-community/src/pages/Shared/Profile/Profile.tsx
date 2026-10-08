@@ -1,4 +1,5 @@
 import { useState, ChangeEvent, useEffect, useCallback } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
 import {
   Button,
   Tabs,
@@ -28,7 +29,7 @@ import {
   Switch,
   Checkbox,
 } from '@evoapi/design-system';
-import { AlertTriangle, Mail, Volume2, Bell, Keyboard, Play } from 'lucide-react';
+import { AlertTriangle, Mail, Volume2, Bell, Keyboard, Play, Check, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '@/contexts/AuthContext';
 import { useAuthStore } from '@/store/authStore';
@@ -38,18 +39,54 @@ import {
   type ProfileUpdateData,
   type PasswordChangeData,
 } from '@/services/profile/profileService';
+import { extractError } from '@/utils/apiHelpers';
 import notificationSettingsService from '@/services/notifications/NotificationSettingsService';
 import { getAudioSettings, playNotificationSoundPreview } from '@/utils/audioNotificationUtils';
 import { getModifierKey } from '@/utils/platform';
 import { normalizeAvatarUrl } from '@/utils/avatarUrl';
 import { ProfilePhotoUploader, TwoFactorSetup } from '@/components/shared/profile';
 
+const SECTION_TO_TAB: Record<string, string> = {
+  'personal-data': 'dados',
+  'interface': 'interface',
+  'notifications': 'notificacoes',
+  'security': 'seguranca',
+};
+
+const TAB_TO_SECTION: Record<string, string> = {
+  'dados': 'personal-data',
+  'interface': 'interface',
+  'notificacoes': 'notifications',
+  'seguranca': 'security',
+};
+
 const Profile = () => {
   const { user, refreshUser, logout } = useAuth();
   const { t } = useLanguage('profile');
   const normalizedUserAvatar = normalizeAvatarUrl(user?.avatar_url);
   const modifierKey = getModifierKey(); // 'Cmd' on Mac, 'Ctrl' on others
-  const [activeTab, setActiveTab] = useState('dados');
+  const { section } = useParams<{ section?: string }>();
+  const navigate = useNavigate();
+  const initialTab = (section && SECTION_TO_TAB[section]) || 'dados';
+  const [activeTab, setActiveTab] = useState(initialTab);
+
+  // H1: sync tab when browser back/forward changes the section param without remount
+  useEffect(() => {
+    const tab = (section && SECTION_TO_TAB[section]) || 'dados';
+    setActiveTab(tab);
+  }, [section]);
+
+  // M1: canonicalize the URL — /profile → /profile/personal-data; invalid sections → same
+  useEffect(() => {
+    if (!section || !SECTION_TO_TAB[section]) {
+      navigate('/profile/personal-data', { replace: true });
+    }
+  }, []);
+
+  const handleTabChange = useCallback((tab: string) => {
+    setActiveTab(tab);
+    navigate(`/profile/${TAB_TO_SECTION[tab]}`, { replace: true });
+  }, [navigate]);
   const [isLoading, setIsLoading] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deleteConfirmEmail, setDeleteConfirmEmail] = useState('');
@@ -396,7 +433,6 @@ const Profile = () => {
   };
 
   const handleChangePassword = async () => {
-    // Validação básica
     if (!passwords.current_password || !passwords.password || !passwords.password_confirmation) {
       toast.error(t('password.validation.allFields'));
       return;
@@ -407,7 +443,7 @@ const Profile = () => {
       return;
     }
 
-    if (passwords.password.length < 6) {
+    if (passwords.password.length < 8) {
       toast.error(t('password.validation.minLength'));
       return;
     }
@@ -430,7 +466,20 @@ const Profile = () => {
       });
     } catch (error) {
       console.error('Password change error:', error);
-      toast.error(t('notifications.passwordChangeError'));
+      const errorInfo = extractError(error);
+      if (errorInfo.code === 'VALIDATION_ERROR' && Array.isArray(errorInfo.details)) {
+        const passwordDetail = errorInfo.details.find((d: { field: string; codes?: string[] }) => d.field === 'password');
+        if (passwordDetail?.codes?.length) {
+          passwordDetail.codes.forEach((code: string) => {
+            const key = `password.errors.${code.replace('password.', '')}`;
+            toast.error(t(key));
+          });
+        } else {
+          toast.error(t('notifications.passwordChangeError'));
+        }
+      } else {
+        toast.error(t('notifications.passwordChangeError'));
+      }
     } finally {
       setIsLoading(false);
     }
@@ -516,56 +565,77 @@ const Profile = () => {
     </Card>
   );
 
-  const renderSenha = () => (
-    <Card>
-      <CardHeader>
-        <CardTitle>{t('password.title')}</CardTitle>
-        <CardDescription>{t('password.description')}</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <div className="max-w-md space-y-6">
-          <div className="space-y-2">
-            <Label htmlFor="senha-atual">{t('password.fields.currentPassword')} *</Label>
-            <Input
-              id="senha-atual"
-              type="password"
-              value={passwords.current_password}
-              onChange={handlePasswordInputChange('current_password')}
-              placeholder={t('password.fields.currentPlaceholder')}
-            />
-          </div>
+  const renderSenha = () => {
+    const newPassword = passwords.password;
+    const complexityRules = [
+      { key: 'minLength', met: newPassword.length >= 8 },
+      { key: 'uppercase', met: /[A-Z]/.test(newPassword) },
+      { key: 'lowercase', met: /[a-z]/.test(newPassword) },
+      { key: 'number', met: /\d/.test(newPassword) },
+      { key: 'specialChar', met: /[^A-Za-z0-9]/.test(newPassword) },
+    ];
 
-          <div className="space-y-2">
-            <Label htmlFor="nova-senha">{t('password.fields.newPassword')} *</Label>
-            <Input
-              id="nova-senha"
-              type="password"
-              value={passwords.password}
-              onChange={handlePasswordInputChange('password')}
-              placeholder={t('password.fields.newPlaceholder')}
-            />
-          </div>
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>{t('password.title')}</CardTitle>
+          <CardDescription>{t('password.description')}</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="max-w-md space-y-6">
+            <div className="space-y-2">
+              <Label htmlFor="senha-atual">{t('password.fields.currentPassword')} *</Label>
+              <Input
+                id="senha-atual"
+                type="password"
+                value={passwords.current_password}
+                onChange={handlePasswordInputChange('current_password')}
+                placeholder={t('password.fields.currentPlaceholder')}
+              />
+            </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="confirmar-senha">{t('password.fields.confirmPassword')} *</Label>
-            <Input
-              id="confirmar-senha"
-              type="password"
-              value={passwords.password_confirmation}
-              onChange={handlePasswordInputChange('password_confirmation')}
-              placeholder={t('password.fields.confirmPlaceholder')}
-            />
-          </div>
+            <div className="space-y-2">
+              <Label htmlFor="nova-senha">{t('password.fields.newPassword')} *</Label>
+              <Input
+                id="nova-senha"
+                type="password"
+                value={passwords.password}
+                onChange={handlePasswordInputChange('password')}
+                placeholder={t('password.fields.newPlaceholder')}
+              />
+              {newPassword.length > 0 && (
+                <ul className="mt-2 space-y-1">
+                  {complexityRules.map(({ key, met }) => (
+                    <li key={key} className={`flex items-center gap-1.5 text-xs ${met ? 'text-green-600 dark:text-green-400' : 'text-muted-foreground'}`}>
+                      {met ? <Check className="h-3 w-3" /> : <X className="h-3 w-3" />}
+                      {t(`password.rules.${key}`)}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
 
-          <div className="flex justify-end">
-            <Button onClick={handleChangePassword} disabled={isLoading} className="min-w-[120px]">
-              {isLoading ? t('password.actions.changing') : t('password.actions.changePassword')}
-            </Button>
+            <div className="space-y-2">
+              <Label htmlFor="confirmar-senha">{t('password.fields.confirmPassword')} *</Label>
+              <Input
+                id="confirmar-senha"
+                type="password"
+                value={passwords.password_confirmation}
+                onChange={handlePasswordInputChange('password_confirmation')}
+                placeholder={t('password.fields.confirmPlaceholder')}
+              />
+            </div>
+
+            <div className="flex justify-end">
+              <Button onClick={handleChangePassword} disabled={isLoading} className="min-w-[120px]">
+                {isLoading ? t('password.actions.changing') : t('password.actions.changePassword')}
+              </Button>
+            </div>
           </div>
-        </div>
-      </CardContent>
-    </Card>
-  );
+        </CardContent>
+      </Card>
+    );
+  };
 
   // const handleCopyToken = async () => {
   //   // Primeiro tenta buscar do perfil carregado, depois do contexto
@@ -613,6 +683,19 @@ const Profile = () => {
       return;
     }
 
+    // Auto-request browser permission on first push enable.
+    // If the user denies the prompt, abort: saving push=true while permission is
+    // 'denied' would silently store an unreachable subscription on the backend.
+    if (type === 'push' && value && 'Notification' in window) {
+      if (Notification.permission === 'default') {
+        await requestNotificationPermission();
+      }
+      if (Notification.permission !== 'granted') {
+        toast.error(t('notifications.browserPermission.denied'));
+        return;
+      }
+    }
+
     // Atualizar estado local primeiro (otimistic update)
     const notificationType = `${type}_notifications` as keyof typeof notificationSettings;
     const currentNotifications = notificationSettings[notificationType] as Record<string, boolean> | undefined;
@@ -645,13 +728,6 @@ const Profile = () => {
       const emailFlags = settingsToFlags(updatedSettings.email_notifications, 'email');
       const pushFlags = settingsToFlags(updatedSettings.push_notifications, 'push');
 
-      console.log('📧 [Profile] Updating notification settings:', {
-        emailFlags,
-        pushFlags,
-        setting,
-        value,
-      });
-
       await notificationSettingsService.updateSettings({
         selected_email_flags: emailFlags,
         selected_push_flags: pushFlags,
@@ -660,7 +736,7 @@ const Profile = () => {
       toast.success(t('notifications.updated'));
     } catch (error) {
       console.error('Error updating notification settings:', error);
-      toast.error(t('notifications.settingsUpdateError') || 'Error updating notification settings');
+      toast.error(t('notifications.settingsUpdateError'));
 
       // Reverter mudança em caso de erro
       setNotificationSettings(prev => {
@@ -689,13 +765,13 @@ const Profile = () => {
       toast.success(t('audio.updated'));
     } catch (error) {
       console.error('Error saving audio settings:', error);
-      toast.error('Error saving audio settings');
+      toast.error(t('audio.saveError'));
     }
   };
 
   const requestNotificationPermission = async () => {
     if (!('Notification' in window)) {
-      toast.error('Browser notifications are not supported');
+      toast.error(t('notifications.browserPermission.notSupported'));
       return;
     }
 
@@ -799,8 +875,8 @@ const Profile = () => {
             <button
               className={`px-0 reset-base w-full sm:flex-1 rounded-xl outline ${
                 uiSettings.editor_message_key === 'enter'
-                  ? 'outline-green-500/30'
-                  : 'outline-gray-300'
+                  ? 'outline-primary/30'
+                  : 'outline-border'
               }`}
               onClick={() => handleHotKeyChange('enter')}
             >
@@ -810,12 +886,12 @@ const Profile = () => {
                   <div
                     className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
                       uiSettings.editor_message_key === 'enter'
-                        ? 'border-green-500 bg-green-500'
-                        : 'border-gray-300'
+                        ? 'border-primary bg-primary'
+                        : 'border-input'
                     }`}
                   >
                     {uiSettings.editor_message_key === 'enter' && (
-                      <div className="w-2 h-2 bg-white rounded-full" />
+                      <div className="w-2 h-2 bg-primary-foreground rounded-full" />
                     )}
                   </div>
                 </div>
@@ -832,8 +908,8 @@ const Profile = () => {
             <button
               className={`px-0 reset-base w-full sm:flex-1 rounded-xl outline ${
                 uiSettings.editor_message_key === 'cmd_enter'
-                  ? 'outline-green-500/30'
-                  : 'outline-gray-300'
+                  ? 'outline-primary/30'
+                  : 'outline-border'
               }`}
               onClick={() => handleHotKeyChange('cmd_enter')}
             >
@@ -845,12 +921,12 @@ const Profile = () => {
                   <div
                     className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
                       uiSettings.editor_message_key === 'cmd_enter'
-                        ? 'border-green-500 bg-green-500'
-                        : 'border-gray-300'
+                        ? 'border-primary bg-primary'
+                        : 'border-input'
                     }`}
                   >
                     {uiSettings.editor_message_key === 'cmd_enter' && (
-                      <div className="w-2 h-2 bg-white rounded-full" />
+                      <div className="w-2 h-2 bg-primary-foreground rounded-full" />
                     )}
                   </div>
                 </div>
@@ -1068,9 +1144,12 @@ const Profile = () => {
       conversation_mention: t('notifications.email.types.conversation_mention'),
       participating_conversation_new_message: t(
         'notifications.email.types.participating_conversation_new_message',
-      ) || 'New message in participating conversation',
+      ),
+      sla_missed_first_response: t('notifications.email.types.sla_missed_first_response'),
+      sla_missed_next_response: t('notifications.email.types.sla_missed_next_response'),
+      sla_missed_resolution: t('notifications.email.types.sla_missed_resolution'),
     };
-    return labels[key] || key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+    return labels[key] ?? key;
   };
 
   const renderZonaPerigo = () => (
@@ -1123,7 +1202,7 @@ const Profile = () => {
         <p className="text-muted-foreground mt-2">{t('subtitle')}</p>
       </div>
 
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+      <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
         <TabsList className="grid w-full grid-cols-4 mb-8">
           <TabsTrigger value="dados">{t('tabs.personalData')}</TabsTrigger>
           <TabsTrigger value="interface">{t('tabs.interface')}</TabsTrigger>

@@ -25,6 +25,15 @@ import { conversationAPI } from '@/services/conversations';
 import MessageTemplateService from '@/services/channels/messageTemplatesService';
 import { MessageTemplate } from '@/types/channels/inbox';
 import { ConversationCreateData } from '@/types/chat/api';
+import {
+  getStatusBadgeKey,
+  hasUnsupportedFormat,
+  isTemplateSendable,
+} from '../chat/message-template/templateStatus';
+import {
+  buildInitialVariableParams,
+  extractTemplateVariables,
+} from '@/utils/templateVariables';
 
 interface StartConversationModalProps {
   open: boolean;
@@ -32,6 +41,36 @@ interface StartConversationModalProps {
   contact: Contact;
   onConversationCreated?: (conversationId: string) => void;
 }
+
+const getTemplatePreviewText = (template: MessageTemplate, isEmailInbox: boolean) => {
+  if (isEmailInbox) {
+    const metadata = template.metadata as Record<string, unknown> | undefined;
+    if (metadata?.html_content && typeof metadata.html_content === 'string') {
+      const tempDiv = document.createElement('div');
+      tempDiv.innerHTML = metadata.html_content;
+      return tempDiv.textContent || tempDiv.innerText || 'Template de email';
+    }
+
+    return template.content || 'Template de email visual';
+  }
+
+  const bodyComponent = Array.isArray(template.components)
+    ? template.components.find(c => c.type === 'BODY')
+    : template.components?.body;
+  return bodyComponent?.text || template.content || '';
+};
+
+const replaceTemplateVariables = (content: string, params: Record<string, string>) => {
+  let result = content;
+  Object.entries(params).forEach(([key, value]) => {
+    const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    result = result.replace(
+      new RegExp(`\\{\\{\\s*${escapedKey}\\s*\\}\\}`, 'g'),
+      value || `{{${key}}}`,
+    );
+  });
+  return result;
+};
 
 export default function StartConversationModal({
   open,
@@ -95,45 +134,37 @@ export default function StartConversationModal({
     }
   }, [contact.id]);
 
-  const loadMessageTemplate = useCallback(async () => {
-    if (!selectedInboxId) return;
+  const loadMessageTemplate = useCallback(
+    async (inboxId: string, cloudInbox: boolean, isCancelled: () => boolean) => {
+      setLoadingTemplates(true);
+      try {
+        const response = await MessageTemplateService.getTemplates(inboxId);
 
-    setLoadingTemplates(true);
-    try {
-      const response = await MessageTemplateService.getTemplates(selectedInboxId);
+        if (isCancelled()) return;
 
-      const templates = response?.data || [];
+        const templates = response?.data || [];
 
-      if (!isWhatsAppCloud) {
-        setMessageTemplate(templates);
-        return;
-      }
-
-      // Filter approved templates without unsupported formats
-      const UNSUPPORTED_FORMATS = ['DOCUMENT', 'IMAGE', 'VIDEO'];
-      const approvedTemplates = templates.filter((template: MessageTemplate) => {
-        const status = template?.settings?.status;
-        if (!status) return false;
-
-        if ((status as string).toLowerCase() !== 'approved') return false;
-        if (template.components) {
-          // Handle both object format (WhatsApp Cloud) and array format (legacy)
-          const hasUnsupportedFormat = Array.isArray(template.components)
-            ? template.components.some(c => c.format && UNSUPPORTED_FORMATS.includes(c.format))
-            : (template.components?.header?.format && UNSUPPORTED_FORMATS.includes(template.components.header.format)) || false;
-          if (hasUnsupportedFormat) return false;
+        if (!cloudInbox) {
+          setMessageTemplate(templates);
+          return;
         }
-        return true;
-      });
 
-      setMessageTemplate(approvedTemplates);
-    } catch (error) {
-      console.error('Error loading templates:', error);
-      setMessageTemplate([]);
-    } finally {
-      setLoadingTemplates(false);
-    }
-  }, [selectedInboxId, isWhatsAppCloud]);
+        // Keep pending/unknown templates visible so the user can see why the flow
+        // is blocked. Submit-time guard still requires isTemplateSendable(t).
+        const visible = templates.filter(template => !hasUnsupportedFormat(template));
+        setMessageTemplate(visible);
+      } catch (error) {
+        if (isCancelled()) return;
+        console.error('Error loading templates:', error);
+        setMessageTemplate([]);
+      } finally {
+        if (!isCancelled()) {
+          setLoadingTemplates(false);
+        }
+      }
+    },
+    [],
+  );
 
   // Load available inboxes when modal opens
   useEffect(() => {
@@ -144,21 +175,23 @@ export default function StartConversationModal({
 
   // Load templates when inbox is selected
   useEffect(() => {
-    if (selectedInboxId) {
-      loadMessageTemplate();
-      // Only auto-enable template if it's WhatsApp Cloud (requires template)
-      if (isWhatsAppCloud) {
-        setUseTemplate(true);
-      } else {
-        // For other channels, start with template disabled to allow free message
-        setUseTemplate(false);
-      }
-    } else {
-      setUseTemplate(false);
-    }
-
     setMessageTemplate([]);
     setSelectedTemplate(null);
+
+    if (!selectedInboxId) {
+      setUseTemplate(false);
+      return;
+    }
+
+    // Only auto-enable template if it's WhatsApp Cloud (requires template)
+    setUseTemplate(isWhatsAppCloud);
+
+    let cancelled = false;
+    loadMessageTemplate(selectedInboxId, isWhatsAppCloud, () => cancelled);
+
+    return () => {
+      cancelled = true;
+    };
   }, [selectedInboxId, loadMessageTemplate, isWhatsAppCloud]);
 
   const getChannelIcon = (channelType: string) => {
@@ -212,8 +245,8 @@ export default function StartConversationModal({
     // Validate based on mode
     if (!selectedInboxId) return;
 
-    // WhatsApp Cloud requires template
-    if (isWhatsAppCloud && !selectedTemplate) return;
+    // WhatsApp Cloud requires a Meta-approved template.
+    if (isWhatsAppCloud && !(selectedTemplate && isTemplateSendable(selectedTemplate))) return;
 
     // WhatsApp with template mode requires template selected
     if (isWhatsAppInbox && useTemplate && !selectedTemplate) return;
@@ -236,11 +269,19 @@ export default function StartConversationModal({
     setLoading(true);
     try {
       // Build conversation data - match Vue implementation structure
+      // EVO-1551: when the PII masking flag is on, the backend omits
+      // source_id from /contactable_inboxes for PII-derived channels (WA/
+      // SMS/Email/Twilio) and rebuilds it server-side from contact_id +
+      // inbox_id. Only send source_id when the server actually gave us one
+      // (Instagram, BSUID-only WhatsApp, web widget, etc.) — sending an
+      // empty string used to break the builder.
       const conversationData: ConversationCreateData = {
         contact_id: contact.id,
         inbox_id: selectedInboxId,
-        source_id: selectedInbox?.source_id || '',
       };
+      if (selectedInbox?.source_id) {
+        conversationData.source_id = selectedInbox.source_id;
+      }
 
       // Add message or template params
       // Backend will process templates (both WhatsApp and Email) based on template_params
@@ -248,6 +289,7 @@ export default function StartConversationModal({
         conversationData.message = {
           content: '', // Backend will populate this from template
           template_params: {
+            id: selectedTemplate.id, // EVO-1235: canonical key — backend resolves id-first (global-aware)
             name: selectedTemplate.name,
             category: selectedTemplate.category || 'UTILITY',
             language: selectedTemplate.language,
@@ -405,15 +447,24 @@ export default function StartConversationModal({
             )}
           </div>
 
-          {/* WhatsApp Cloud requires template */}
-          {isWhatsAppCloud && messageTemplates.length === 0 && !loadingTemplates && (
+          {/* WhatsApp Cloud requires a Meta-approved template. Two warning states. */}
+          {isWhatsAppCloud && !loadingTemplates && messageTemplates.length === 0 && (
             <div className="p-3 rounded-md border border-orange-200 bg-orange-50 dark:bg-orange-950/20 dark:border-orange-800">
               <p className="text-sm text-orange-700 dark:text-orange-400">
-                ⚠️ WhatsApp Cloud requer um template aprovado para iniciar a conversa. Nenhum
-                template disponível foi encontrado.
+                ⚠️ {t('startConversation.templates.noneForInbox')}
               </p>
             </div>
           )}
+          {isWhatsAppCloud &&
+            !loadingTemplates &&
+            messageTemplates.length > 0 &&
+            messageTemplates.every(tpl => !isTemplateSendable(tpl)) && (
+              <div className="p-3 rounded-md border border-amber-200 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-800">
+                <p className="text-sm text-amber-700 dark:text-amber-400">
+                  ⚠️ {t('startConversation.templates.noApproved')}
+                </p>
+              </div>
+            )}
 
           {/* Template Selection */}
           {/* Always show template toggle for non-WhatsApp Cloud, even if no templates */}
@@ -421,10 +472,10 @@ export default function StartConversationModal({
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <div className="flex-1">
-                  <Label>{'Usar Template'}</Label>
+                  <Label>{t('startConversation.toggle.label')}</Label>
                   {isWhatsAppCloud && (
                     <p className="text-xs text-muted-foreground mt-1">
-                      WhatsApp Cloud Requer template para iniciar conversa
+                      {t('startConversation.toggle.cloudRequires')}
                     </p>
                   )}
                 </div>
@@ -442,7 +493,9 @@ export default function StartConversationModal({
                     }}
                     disabled={loadingTemplates}
                   >
-                    {useTemplate ? 'Usando Template' : 'Usar Template'}
+                    {useTemplate
+                      ? t('startConversation.toggle.using')
+                      : t('startConversation.toggle.label')}
                   </Button>
                 )}
               </div>
@@ -452,8 +505,7 @@ export default function StartConversationModal({
                   {messageTemplates.length === 0 ? (
                     <div className="p-3 rounded-md border border-yellow-200 bg-yellow-50 dark:bg-yellow-950/20 dark:border-yellow-800">
                       <p className="text-sm text-yellow-700 dark:text-yellow-400">
-                        ⚠️ Nenhum template disponível. Desative "Usar Template" para enviar uma
-                        mensagem livre.
+                        ⚠️ {t('startConversation.templates.noneForInbox')}
                       </p>
                     </div>
                   ) : !selectedTemplate ? (
@@ -461,47 +513,13 @@ export default function StartConversationModal({
                       <Label>Selecione um Template</Label>
                       <div className="space-y-2 max-h-48 overflow-y-auto">
                         {messageTemplates.map(template => {
-                          let previewText = '';
+                          const previewText = getTemplatePreviewText(template, isEmailInbox);
 
-                          if (isEmailInbox) {
-                            // For email templates, try to get HTML preview
-                            const metadata = template.metadata as
-                              | Record<string, unknown>
-                              | undefined;
-                            if (
-                              metadata?.html_content &&
-                              typeof metadata.html_content === 'string'
-                            ) {
-                              // Extract text from HTML for preview
-                              const tempDiv = document.createElement('div');
-                              tempDiv.innerHTML = metadata.html_content;
-                              previewText =
-                                tempDiv.textContent ||
-                                tempDiv.innerText ||
-                                'Template de email visual';
-                            } else if (template.content) {
-                              const content = template.content.trim();
-                              if (
-                                content.startsWith('<!DOCTYPE') ||
-                                content.startsWith('<html') ||
-                                content.startsWith('<!doctype')
-                              ) {
-                                const tempDiv = document.createElement('div');
-                                tempDiv.innerHTML = content;
-                                previewText =
-                                  tempDiv.textContent || tempDiv.innerText || 'Template de email';
-                              } else {
-                                previewText = 'Template de email visual';
-                              }
-                            }
-                          } else {
-                            // For WhatsApp/other channels, use body component or content
-                            // Handle both object format (WhatsApp Cloud) and array format (legacy)
-                            const bodyComponent = Array.isArray(template.components)
-                              ? template.components.find(c => c.type === 'BODY')
-                              : template.components?.body;
-                            previewText = bodyComponent?.text || template.content || '';
-                          }
+                          const cloudBadgeKey = isWhatsAppCloud
+                            ? getStatusBadgeKey(template)
+                            : null;
+                          const showCloudBadge =
+                            cloudBadgeKey !== null && cloudBadgeKey !== 'approved';
 
                           return (
                             <div
@@ -509,17 +527,21 @@ export default function StartConversationModal({
                               className="p-3 border rounded-lg cursor-pointer hover:bg-muted/50 transition-colors"
                               onClick={() => {
                                 setSelectedTemplate(template);
-                                // Extract variables from preview text
-                                const variables = previewText.match(/\{\{(\w+)\}\}/g) || [];
-                                const params: Record<string, string> = {};
-                                variables.forEach((v: string) => {
-                                  const key = v.replace(/\{\{|\}\}/g, '');
-                                  params[key] = '';
-                                });
-                                setTemplateParams(params);
+                                setTemplateParams(
+                                  buildInitialVariableParams(extractTemplateVariables(template)),
+                                );
                               }}
                             >
-                              <div className="font-medium text-sm">{template.name}</div>
+                              <div className="flex items-center gap-2">
+                                <div className="font-medium text-sm">{template.name}</div>
+                                {showCloudBadge && (
+                                  <Badge variant="outline" className="text-xs">
+                                    {t(
+                                      `startConversation.templates.statusBadge.${cloudBadgeKey}`,
+                                    )}
+                                  </Badge>
+                                )}
+                              </div>
                               <div className="text-xs text-muted-foreground mt-1 line-clamp-2">
                                 {previewText}
                               </div>
@@ -545,26 +567,35 @@ export default function StartConversationModal({
                         </Button>
                       </div>
 
+                      {isWhatsAppCloud && !isTemplateSendable(selectedTemplate) && (
+                        <p className="text-xs text-amber-700 dark:text-amber-400 mt-1">
+                          {t('startConversation.templates.pendingSelectedHint')}
+                        </p>
+                      )}
+
                       {/* Template Variables */}
                       {Object.keys(templateParams).length > 0 && (
                         <div className="space-y-2">
                           <Label className="text-sm">Preencha as Variáveis</Label>
-                          {Object.entries(templateParams).map(([key, value]) => (
-                            <div key={key} className="flex items-center gap-2">
-                              <span className="bg-muted text-muted-foreground inline-block rounded-md text-xs py-2 px-3 min-w-[50px] text-center font-medium">
-                                {key}
-                              </span>
-                              <input
-                                type="text"
-                                value={value}
-                                onChange={e =>
-                                  setTemplateParams(prev => ({ ...prev, [key]: e.target.value }))
-                                }
-                                className="flex-1 h-9 px-3 text-sm rounded-md border border-input bg-background"
-                                placeholder={`Valor para {{${key}}}`}
-                              />
-                            </div>
-                          ))}
+                          {extractTemplateVariables(selectedTemplate).map(variable => {
+                            const key = variable.name;
+                            return (
+                              <div key={key} className="flex items-center gap-2">
+                                <span className="bg-muted text-muted-foreground inline-block rounded-md text-xs py-2 px-3 min-w-[50px] text-center font-medium">
+                                  {variable.label || key}
+                                </span>
+                                <input
+                                  type="text"
+                                  value={templateParams[key] ?? ''}
+                                  onChange={e =>
+                                    setTemplateParams(prev => ({ ...prev, [key]: e.target.value }))
+                                  }
+                                  className="flex-1 h-9 px-3 text-sm rounded-md border border-input bg-background"
+                                  placeholder={variable.example || `Valor para {{${key}}}`}
+                                />
+                              </div>
+                            );
+                          })}
                         </div>
                       )}
 
@@ -600,13 +631,7 @@ export default function StartConversationModal({
                                 }
                               }
 
-                              // Replace template variables with actual values
-                              Object.entries(templateParams).forEach(([key, val]) => {
-                                html = html.replace(
-                                  new RegExp(`\\{\\{${key}\\}\\}`, 'g'),
-                                  val || `{{${key}}}`,
-                                );
-                              });
+                              html = replaceTemplateVariables(html, templateParams);
 
                               return (
                                 <div
@@ -619,18 +644,10 @@ export default function StartConversationModal({
                         ) : (
                           <div className="text-sm whitespace-pre-wrap">
                             {(() => {
-                              // Handle both object format (WhatsApp Cloud) and array format (legacy)
-                              const bodyComponent = Array.isArray(selectedTemplate.components)
-                                ? selectedTemplate.components.find(c => c.type === 'BODY')
-                                : selectedTemplate.components?.body;
-                              let text = bodyComponent?.text || selectedTemplate.content || '';
-                              Object.entries(templateParams).forEach(([key, val]) => {
-                                text = text.replace(
-                                  new RegExp(`\\{\\{${key}\\}\\}`, 'g'),
-                                  val || `{{${key}}}`,
-                                );
-                              });
-                              return text;
+                              return replaceTemplateVariables(
+                                getTemplatePreviewText(selectedTemplate, false),
+                                templateParams,
+                              );
                             })()}
                           </div>
                         )}
@@ -678,8 +695,9 @@ export default function StartConversationModal({
                 loading ||
                   !selectedInboxId ||
                   availableInboxes.length === 0 ||
-                  // WhatsApp Cloud requires template
-                  (isWhatsAppCloud && !selectedTemplate) ||
+                  // WhatsApp Cloud requires a Meta-approved template
+                  (isWhatsAppCloud &&
+                    !(selectedTemplate && isTemplateSendable(selectedTemplate))) ||
                   // WhatsApp with template mode requires template selected
                   (isWhatsAppInbox && useTemplate && !selectedTemplate) ||
                   // WhatsApp with template and variables requires all params filled

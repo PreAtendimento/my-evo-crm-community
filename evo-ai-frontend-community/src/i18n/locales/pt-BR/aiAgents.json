@@ -418,8 +418,7 @@
       "more": "mais",
       "createFirst": "Crie seu primeiro servidor MCP personalizado",
       "serversSelected": "{{count}} servidor(s) selecionado(s)",
-      "selectServers": "Selecionar Servidores",
-      "addSelected": "Adicionar Selecionados ({{count}})",
+      "saveSelection": "Salvar seleção ({{count}})",
       "save": "Adicionar",
       "cancel": "Cancelar"
     },
@@ -537,13 +536,34 @@
       "tools": "Ferramentas",
       "integrations": "Integrações",
       "mcpServers": "Servidores MCP",
+      "products": "Produtos",
       "channels": "Canais",
       "settings": "Configurações"
+    },
+    "products": {
+      "title": "Produtos do agente",
+      "subtitle": "Selecione os produtos que este agente pode recomendar durante conversas. Eles serão injetados no system prompt automaticamente.",
+      "save": "Salvar atribuições",
+      "saving": "Salvando...",
+      "saveSuccess": "Produtos atualizados",
+      "saveError": "Falha ao atualizar produtos"
     },
     "agentOf": "Agente pessoal de",
     "agentType": "{{type}}",
     "testAI": "Teste sua IA",
     "profile": {
+      "summary": {
+        "title": "Resumo do Agente",
+        "type": "Tipo",
+        "native": "Nativo",
+        "external": "Externo",
+        "model": "Modelo",
+        "createdAt": "Criado em",
+        "subAgents": "Sub-agentes",
+        "products": "Produtos",
+        "tipTitle": "Dica de configuração",
+        "tipBody": "Preencha o Papel e o Objetivo para que o agente entenda melhor seu contexto e responda com mais precisão."
+      },
       "title": "Informações pessoais",
       "subtitle": "Configure as informações básicas do seu agente",
       "name": "Nome do agente",
@@ -712,6 +732,10 @@
         "allowContactEditDescription": "Permite que o agente edite informações de contato durante a conversa",
         "allowPipelineManipulation": "Permitir manipular pipelines",
         "allowPipelineManipulationDescription": "Permite que o agente mova conversas entre pipelines e estágios conforme regras definidas",
+        "allowProductSales": "Permitir registrar venda no pipeline",
+        "allowProductSalesDescription": "Permite que o agente registre produtos vendidos no card do pipeline durante a conversa",
+        "allowManageLabels": "Permitir gerenciar labels",
+        "allowManageLabelsDescription": "Permite que o agente adicione e remova labels da conversa atual",
         "timezone": "Timezone do agente",
         "timezoneDescription": "Define o fuso horário usado pelo agente para agendamentos e lembretes",
         "sendAsReply": "Enviar mensagem como resposta na conversa",
@@ -725,6 +749,8 @@
         "theAgentShould": "o agente deve",
         "minute": "minuto",
         "minutes": "minutos",
+        "hour": "hora",
+        "hours": "horas",
         "interactWithClient": "Interagir com cliente",
         "finalizeService": "Finalizar atendimento",
         "whatShouldAgentSay": "O que o agente deve falar?",
@@ -735,17 +761,25 @@
         "description": "Configure instruções para o agente fazer transferência do atendimento.",
         "transferTo": "Transferir para:",
         "aHuman": "Humano",
+        "anAgent": "Agente",
         "aTeam": "Time",
+        "selectAgent": "Selecione o agente:",
+        "selectAgentPlaceholder": "Selecione um agente",
         "selectUser": "Selecione o usuário:",
         "selectUserPlaceholder": "Selecione um usuário",
         "selectTeam": "Selecione o time:",
         "selectTeamPlaceholder": "Selecione um time",
         "returnOnFinish": "Devolver ao finalizar",
         "instructions": "Instruções:",
-        "instructionsPlaceholder": "Quando o cliente quiser falar sobre tal assunto...",
+        "instructionsPlaceholder": "Descreva as condições para transferir o atendimento (ex: quando o cliente pedir para falar com um humano)...",
         "addRule": "Adicionar regra de transferência",
         "modalTitle": "Regras de Transferência",
         "modalDescription": "Configure quando e como o agente deve transferir conversas para humanos ou times."
+      },
+      "modalFooter": {
+        "cancel": "Cancelar",
+        "save": "Salvar",
+        "saving": "Salvando..."
       },
       "pipelineRules": {
         "description": "Configure instruções para o agente manipular pipelines e atribuir conversas a estágios específicos.",
@@ -843,10 +877,10 @@
       "title": "Integrações",
       "subtitle": "Conecte o seu agente a outros aplicativos, isso permite que ele obtenha informações mais precisas ou agende reuniões para você.",
       "comingSoon": "Em breve...",
-      "activate": "ATIVAR",
-      "active": "ATIVO",
-      "configure": "CONFIGURAR",
-      "notAvailable": "NÃO DISPONÍVEL",
+      "activate": "Ativar",
+      "active": "Ativado",
+      "configure": "Configurar",
+      "notAvailable": "Em breve",
       "elevenlabs": {
         "description": "Com ElevenLabs você da a capacidade do seu agente responder seus clientes em áudio, tornando ainda mais humanizado.",
         "configTitle": "Configurar ElevenLabs",
@@ -991,8 +1025,39 @@
         "saveConfig": "APLICAR CONFIGURAÇÕES",
         "disconnect": "Desconectar"
       },
+      "activated": "Integração ativada",
+      "deactivated": "Integração desativada",
+      "activationError": "Falha ao ativar a integração",
+      "deactivationError": "Falha ao desativar a integração",
+      "knowledgeNexus": {
+        "description": "Permite que o agente consulte a base de conhecimento do EvoNexus (busca híbrida) antes de responder.",
+        "configTitle": "Configurar Knowledge Nexus",
+        "intro": "Conecte este agente a uma base de conhecimento do EvoNexus para que ele possa buscar informações curadas antes de responder.",
+        "baseUrl": "URL base do Nexus",
+        "baseUrlHint": "Endereço do dashboard EvoNexus (sem barra no final).",
+        "apiKey": "API Key",
+        "apiKeyHint": "Chave de API gerada no Nexus em Knowledge → API Keys. Formato evo_k_<prefix>.<secret>.",
+        "apiKeySaved": "✓ Chave já configurada — deixe em branco para manter, redigite para substituir.",
+        "apiKeySavedPlaceholder": "Deixe em branco para manter a chave salva",
+        "space": "Knowledge space",
+        "spaceSelect": "Selecione uma knowledge space",
+        "spaceHint": "As spaces são carregadas do seu Nexus assim que URL e API key estão preenchidas.",
+        "spaceId": "Space ID",
+        "spaceIdHint": "UUID da knowledge space que será consultada por este agente.",
+        "spacesEmpty": "Nenhuma space encontrada para esta API key.",
+        "spacesError": "Não foi possível carregar as spaces. Verifique a URL e a API key, ou cole o Space ID manualmente.",
+        "spacesNeedCreds": "Preencha a URL base e a API key primeiro.",
+        "loadingSpaces": "Carregando spaces do Nexus...",
+        "reloadSpaces": "Recarregar",
+        "useDropdown": "Selecionar da lista",
+        "useManual": "Colar Space ID manualmente",
+        "topK": "Top K (padrão)",
+        "timeout": "Timeout (s)",
+        "apply": "APLICAR CONFIGURAÇÕES",
+        "deactivate": "Desativar integração"
+      },
       "github": {
-        "description": "Com GitHub seu agente será capaz de acessar repositórios, issues, pull requests e outras informações do GitHub.",
+        "description": "Integre seu agente com GitHub para acessar repositórios e informações de código.",
         "configTitle": "Configurar GitHub",
         "connectTitle": "Conectar com GitHub",
         "connectDescription": "Conecte sua conta GitHub para permitir que o agente acesse repositórios e informações de código",
@@ -1150,9 +1215,6 @@
         "saveConfig": "SALVAR CONFIGURAÇÕES",
         "disconnect": "Desconectar"
       },
-      "github": {
-        "description": "Integre seu agente com GitHub para acessar repositórios e informações de código."
-      },
       "canva": {
         "description": "Com Canva seu agente será capaz de criar e editar designs, apresentações e materiais visuais.",
         "configTitle": "Configurar Canva",
@@ -1207,6 +1269,7 @@
   },
   "actions": {
     "save": "Salvar",
+    "close": "Fechar",
     "cancel": "Cancelar",
     "delete": "Excluir",
     "edit": "Editar",
@@ -1264,33 +1327,34 @@
       "subtitle": "Escolha o tipo que melhor se adequa ao seu caso de uso",
       "types": {
         "llm": {
-          "label": "LLM (Modelo de Linguagem)",
-          "description": "Assistente inteligente com IA generativa"
+          "label": "Assistente de IA (Nativo)",
+          "description": "IA conversacional — raciocina, responde perguntas e conversa usando modelo de linguagem"
         },
         "task": {
           "label": "Tarefa",
-          "description": "Automação de tarefas específicas"
+          "description": "Orquestra tarefas entre sub-agentes, cada uma com uma saída definida"
         },
         "sequential": {
-          "label": "Sequential",
-          "description": "Executa agentes em sequência"
+          "label": "Sequencial",
+          "description": "Executa sub-agentes em cadeia, passando o resultado de cada etapa para a próxima"
         },
         "parallel": {
-          "label": "Parallel",
-          "description": "Executa agentes em paralelo"
+          "label": "Paralelo",
+          "description": "Executa múltiplos sub-agentes ao mesmo tempo para tarefas independentes"
         },
         "loop": {
           "label": "Loop",
-          "description": "Executa agentes em loop"
+          "description": "Repete sub-agentes até atingir uma condição ou número de iterações"
         },
         "external": {
-          "label": "Integrações Externas",
-          "description": "Conecta e executa integrações externas"
+          "label": "Externo (Integrações)",
+          "description": "Delega para fluxos do Flowise, n8n, Typebot, Dify ou OpenAI"
         }
       },
       "badges": {
         "mostPopular": "Mais Popular"
-      }
+      },
+      "advanced": "Tipos avançados"
     },
     "step3": {
       "titles": {
@@ -1361,7 +1425,8 @@
       "validationError": "Descreva brevemente o que seu agente faz (mínimo 10 caracteres)",
       "tip": "Dica:",
       "tipContent": "Seja claro e específico. Quanto mais detalhes você fornecer, melhor o agente entenderá seu papel e responderá de acordo.",
-      "generateWithAI": "Gerar com IA"
+      "generateWithAI": "Gerar com IA",
+      "aiNotConfigured": "Integração com OpenAI não configurada. Acesse Configurações → Integrações para habilitar os recursos de IA."
     },
     "promptGenerator": {
       "title": "Gerador de Prompt com IA",
@@ -1411,13 +1476,18 @@
       "buttons": {
         "cancel": "Cancelar",
         "generate": "Gerar Prompt",
-        "generating": "Gerando..."
+        "generating": "Gerando...",
+        "review": "Revisar Prompt",
+        "reviewing": "Revisando..."
       },
       "messages": {
         "accountIdNotFound": "ID da conta não encontrado",
         "fillAtLeastOne": "Preencha pelo menos um campo para gerar o prompt",
+        "fillPromptToReview": "Por favor, insira um prompt para revisar",
         "success": "Prompt gerado com sucesso!",
-        "error": "Erro ao gerar prompt"
+        "error": "Erro ao gerar prompt",
+        "reviewSuccess": "Prompt revisado com sucesso!",
+        "reviewError": "Erro ao revisar prompt"
       }
     },
     "step6": {
@@ -1458,6 +1528,7 @@
   "chat": {
     "newConversation": "Nova Conversa",
     "searchConversations": "Buscar conversas...",
+    "conversations": "Conversas",
     "noConversations": "Nenhuma conversa",
     "loading": "Carregando conversa...",
     "chatWithAgent": "Chat com {{name}}",
@@ -1465,7 +1536,7 @@
     "selectConversation": "Selecione uma conversa",
     "chooseOrStart": "Escolha uma conversa existente ou inicie uma nova.",
     "selectOrCreateSession": "Selecione uma conversa ou crie uma nova",
-    "selectSessionMessage": "Escolha uma conversa existente na lista ao lado ou clique em \"Nova Conversa\" para começar.",
+    "selectSessionMessage": "Abra o ícone de conversas para escolher uma existente ou clique em \"+\" para começar uma nova.",
     "typeMessage": "Digite sua mensagem...",
     "deleteSession": "Deletar Sessão",
     "deleteSessionConfirm": "Tem certeza que deseja deletar esta sessão? Esta ação não pode ser desfeita.",
@@ -1493,9 +1564,6 @@
     },
     "notion": {
       "description": "Acesse e atualize páginas, databases e blocos do Notion."
-    },
-    "stripe": {
-      "description": "Gerencie pagamentos, assinaturas e informações de clientes no Stripe."
     },
     "stripe": {
       "description": "Gerencie pagamentos, assinaturas e informações de clientes no Stripe."

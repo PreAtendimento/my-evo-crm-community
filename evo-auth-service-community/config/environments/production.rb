@@ -1,4 +1,5 @@
 require "active_support/core_ext/integer/time"
+require_relative "../../lib/global_config_service"
 
 Rails.application.configure do
   # Settings specified here will take precedence over those in config/application.rb.
@@ -19,14 +20,27 @@ Rails.application.configure do
   # config.asset_host = "http://assets.example.com"
 
   # Store uploaded files (see config/storage.yml for options).
-  # Use ACTIVE_STORAGE_SERVICE env var to select: local, amazon, s3_compatible
-  config.active_storage.service = ENV.fetch('ACTIVE_STORAGE_SERVICE', 'local').to_sym
+  # Use ACTIVE_STORAGE_SERVICE env var or admin UI to select: local, amazon, s3_compatible
+  config.active_storage.service = begin
+    GlobalConfigService.load('ACTIVE_STORAGE_SERVICE', ENV.fetch('ACTIVE_STORAGE_SERVICE', 'local'))
+  rescue StandardError => e
+    warn "[ActiveStorage] GlobalConfigService unavailable at boot (#{e.message}); falling back to ENV"
+    ENV.fetch('ACTIVE_STORAGE_SERVICE', 'local')
+  end.to_sym
+
+  # SSL/TLS posture. On by default (unchanged). Set FORCE_SSL=false to move TLS
+  # termination entirely to an external reverse proxy — required for a self-hosted
+  # box whose services talk plain HTTP over the internal Docker network (a forced
+  # http->https redirect would break service-to-service calls) and which may be
+  # reached over plain HTTP locally. Both flags share one switch on purpose:
+  # assume_ssl alone still marks cookies secure and generates https URLs.
+  ssl_enforced = ActiveModel::Type::Boolean.new.cast(ENV.fetch('FORCE_SSL', 'true'))
 
   # Assume all access to the app is happening through a SSL-terminating reverse proxy.
-  config.assume_ssl = true
+  config.assume_ssl = ssl_enforced
 
   # Force all access to the app over SSL, use Strict-Transport-Security, and use secure cookies.
-  config.force_ssl = true
+  config.force_ssl = ssl_enforced
 
   # Skip http-to-https redirect for the default health check endpoint.
   # config.ssl_options = { redirect: { exclude: ->(request) { request.path == "/up" } } }

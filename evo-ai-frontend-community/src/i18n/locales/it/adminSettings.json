@@ -3,12 +3,9 @@
   "navigation": {
     "email": "E-mail",
     "storage": "Archiviazione",
-    "socialLogin": "Login Sociale",
     "channels": "Canali",
     "openai": "OpenAI",
-    "integrations": "Integrazioni",
-    "inboundEmail": "E-mail in Entrata",
-    "frontendRuntime": "Frontend Runtime"
+    "integrations": "Integrazioni"
   },
   "email": {
     "title": "Configurazione E-mail",
@@ -61,7 +58,11 @@
     "testConnection": "Testa Connessione",
     "testing": "Test in corso...",
     "testFailed": "Test di connessione fallito",
-    "testError": "Impossibile eseguire il test di connessione"
+    "testError": "Impossibile eseguire il test di connessione",
+    "envWarning": {
+      "title": "Attenzione:",
+      "body": "Salvare qui persiste i valori, ma il servizio email legge ancora le credenziali SMTP dalle variabili d'ambiente all'avvio. Fino al rilascio di EVO-1049, configurare SMTP tramite env var per avere effetto."
+    }
   },
   "storage": {
     "title": "Configurazione Archiviazione",
@@ -70,13 +71,16 @@
       "label": "Provider di Archiviazione",
       "local": "Archiviazione Locale",
       "amazon": "Amazon S3",
-      "s3Compatible": "Compatibile con S3"
+      "amazonHelp": "AWS S3 — usa la Regione e le tue credenziali AWS. Nessun endpoint personalizzato necessario.",
+      "s3CompatibleHelp": "Qualsiasi provider compatibile con S3 che non sia AWS (MinIO, Cloudflare R2, DigitalOcean Spaces…). Richiede un Endpoint personalizzato.",
+      "s3Compatible": "Compatibile con S3 (MinIO, Cloudflare R2, DigitalOcean Spaces…)"
     },
     "fields": {
       "bucketName": "Nome del Bucket",
       "accessKeyId": "ID Chiave di Accesso",
       "accessSecret": "Chiave di Accesso Segreta",
       "region": "Regione",
+      "endpointHelp": "URL dell'endpoint del tuo provider compatibile con S3. Solo per Compatibile con S3 — lascia vuoto per AWS.",
       "endpoint": "Endpoint"
     },
     "placeholders": {
@@ -105,11 +109,15 @@
     "testConnection": "Testa Connessione",
     "testing": "Test in corso...",
     "testFailed": "Test di connessione fallito",
-    "testError": "Impossibile eseguire il test di connessione"
+    "testError": "Impossibile eseguire il test di connessione",
+    "cloudWarning": {
+      "title": "Importante:",
+      "body": "Le credenziali S3 (chiave di accesso, segreto, regione ed endpoint) sono incorporate nella configurazione del servizio all'avvio — modificarle qui richiede il riavvio dei servizi auth e CRM e dei loro worker Sidekiq affinche i nuovi valori abbiano effetto. Le modifiche al provider possono richiedere fino a 60 secondi per propagarsi su tutti i servizi. I file esistenti rimangono nel provider di archiviazione precedente; solo i nuovi caricamenti utilizzeranno la configurazione aggiornata."
+    }
   },
   "socialLogin": {
-    "title": "Configurazione Login Sociale",
-    "description": "Configura le credenziali OAuth dei provider di login sociale per consentire agli utenti di accedere con Google o Microsoft.",
+    "title": "Credenziali del provider e-mail (OAuth)",
+    "description": "Credenziali dell'app OAuth (Google / Microsoft) usate per collegare i canali e-mail Gmail e Outlook.",
     "google": {
       "cardTitle": "Google OAuth",
       "fields": {
@@ -156,6 +164,9 @@
     "saving": "Salvataggio..."
   },
   "channels": {
+    "email": {
+      "tabTitle": "Email"
+    },
     "title": "Integrazioni Canali",
     "description": "Configura le credenziali per i canali di messaggistica e integrazioni.",
     "secretConfigured": "Configurato",
@@ -224,11 +235,11 @@
       "tabTitle": "Evolution",
       "fields": {
         "apiUrl": "URL API",
-        "adminSecret": "Segreto Admin"
+        "adminSecret": "Token Admin"
       },
       "placeholders": {
         "apiUrl": "https://evolution-api.esempio.com",
-        "adminSecret": "Inserisci il nuovo segreto admin"
+        "adminSecret": "Inserisci il nuovo token admin"
       },
       "saveSuccess": "Configurazione Evolution salvata con successo",
       "saveError": "Salvataggio della configurazione Evolution non riuscito"
@@ -237,15 +248,11 @@
       "tabTitle": "Evolution Go",
       "fields": {
         "apiUrl": "URL API",
-        "adminSecret": "Segreto Admin",
-        "instanceId": "ID Istanza",
-        "instanceSecret": "Segreto Istanza"
+        "adminSecret": "Token Admin"
       },
       "placeholders": {
         "apiUrl": "https://evolution-go.esempio.com",
-        "adminSecret": "Inserisci il nuovo segreto admin",
-        "instanceId": "Il tuo Evolution Go Instance ID",
-        "instanceSecret": "Inserisci il nuovo segreto istanza"
+        "adminSecret": "Inserisci il nuovo token admin"
       },
       "saveSuccess": "Configurazione Evolution Go salvata con successo",
       "saveError": "Salvataggio della configurazione Evolution Go non riuscito"
@@ -267,6 +274,16 @@
       "saveSuccess": "Configurazione Twitter salvata con successo",
       "saveError": "Salvataggio della configurazione Twitter non riuscito"
     },
+    "clearConfig": {
+      "button": "Cancella Configurazione",
+      "dialogTitle": "Cancella Configurazione",
+      "dialogDescription": "Sei sicuro? Questo rimuoverà tutte le credenziali per questo provider. Il provider smetterà di funzionare fino a quando non lo riconfigurerai.",
+      "cancel": "Annulla",
+      "confirm": "Cancella",
+      "clearing": "Cancellazione...",
+      "success": "Configurazione cancellata con successo",
+      "error": "Impossibile cancellare la configurazione"
+    },
     "messages": {
       "loadError": "Caricamento della configurazione dei canali non riuscito"
     }
@@ -286,7 +303,9 @@
         "apiUrl": "https://api.openai.com/v1",
         "apiSecret": "Inserisci la nuova chiave API",
         "model": "gpt-4o"
-      }
+      },
+      "credentialMoved": "La credenziale di IA ora si trova in Impostazioni > Credenziali di IA.",
+      "goToCredentials": "Vai a Credenziali di IA"
     },
     "prompts": {
       "cardTitle": "Modelli di Prompt IA",
@@ -326,7 +345,7 @@
   },
   "integrations": {
     "title": "Configurazione Integrazioni",
-    "description": "Configura le credenziali OAuth per integrazioni di terze parti come Linear, HubSpot, Shopify e Slack.",
+    "description": "Configura le credenziali OAuth per integrazioni di terze parti come Linear, GitHub, Notion e altre.",
     "secretConfigured": "Configurato",
     "secretNotConfigured": "Non configurato",
     "clearSecret": "Cancella valore salvato",
@@ -384,13 +403,138 @@
       "saveSuccess": "Configurazione Slack salvata con successo",
       "saveError": "Errore nel salvataggio della configurazione Slack"
     },
+    "github": {
+      "cardTitle": "GitHub",
+      "fields": {
+        "clientId": "ID Cliente",
+        "clientSecret": "Segreto Cliente"
+      },
+      "placeholders": {
+        "clientId": "Il tuo GitHub Client ID",
+        "clientSecret": "Inserisci il nuovo segreto cliente"
+      },
+      "saveSuccess": "Configurazione GitHub salvata con successo",
+      "saveError": "Errore nel salvataggio della configurazione GitHub"
+    },
+    "notion": {
+      "cardTitle": "Notion",
+      "fields": {
+        "clientId": "ID Cliente",
+        "clientSecret": "Segreto Cliente"
+      },
+      "placeholders": {
+        "clientId": "Il tuo Notion Client ID",
+        "clientSecret": "Inserisci il nuovo segreto cliente"
+      },
+      "saveSuccess": "Configurazione Notion salvata con successo",
+      "saveError": "Errore nel salvataggio della configurazione Notion"
+    },
+    "asana": {
+      "cardTitle": "Asana",
+      "fields": {
+        "clientId": "ID Cliente",
+        "clientSecret": "Segreto Cliente"
+      },
+      "placeholders": {
+        "clientId": "Il tuo Asana Client ID",
+        "clientSecret": "Inserisci il nuovo segreto cliente"
+      },
+      "saveSuccess": "Configurazione Asana salvata con successo",
+      "saveError": "Errore nel salvataggio della configurazione Asana"
+    },
+    "canva": {
+      "cardTitle": "Canva",
+      "fields": {
+        "clientId": "ID Cliente",
+        "clientSecret": "Segreto Cliente"
+      },
+      "placeholders": {
+        "clientId": "Il tuo Canva Client ID",
+        "clientSecret": "Inserisci il nuovo segreto cliente"
+      },
+      "saveSuccess": "Configurazione Canva salvata con successo",
+      "saveError": "Errore nel salvataggio della configurazione Canva"
+    },
+    "google_calendar": {
+      "cardTitle": "Google Calendar",
+      "fields": {
+        "clientId": "ID Cliente",
+        "clientSecret": "Segreto Cliente"
+      },
+      "placeholders": {
+        "clientId": "Il tuo Google Calendar Client ID",
+        "clientSecret": "Inserisci il nuovo segreto cliente"
+      },
+      "saveSuccess": "Configurazione Google Calendar salvata con successo",
+      "saveError": "Errore nel salvataggio della configurazione Google Calendar"
+    },
+    "google_sheets": {
+      "cardTitle": "Google Sheets",
+      "fields": {
+        "clientId": "ID Cliente",
+        "clientSecret": "Segreto Cliente"
+      },
+      "placeholders": {
+        "clientId": "Il tuo Google Sheets Client ID",
+        "clientSecret": "Inserisci il nuovo segreto cliente"
+      },
+      "saveSuccess": "Configurazione Google Sheets salvata con successo",
+      "saveError": "Errore nel salvataggio della configurazione Google Sheets"
+    },
+    "monday": {
+      "cardTitle": "Monday.com",
+      "fields": {
+        "clientId": "ID Cliente",
+        "clientSecret": "Segreto Cliente"
+      },
+      "placeholders": {
+        "clientId": "Il tuo Monday.com Client ID",
+        "clientSecret": "Inserisci il nuovo segreto cliente"
+      },
+      "saveSuccess": "Configurazione Monday.com salvata con successo",
+      "saveError": "Errore nel salvataggio della configurazione Monday.com"
+    },
+    "paypal": {
+      "cardTitle": "PayPal",
+      "fields": {
+        "clientId": "ID Cliente",
+        "clientSecret": "Segreto Cliente"
+      },
+      "placeholders": {
+        "clientId": "Il tuo PayPal Client ID",
+        "clientSecret": "Inserisci il nuovo segreto cliente"
+      },
+      "saveSuccess": "Configurazione PayPal salvata con successo",
+      "saveError": "Errore nel salvataggio della configurazione PayPal"
+    },
+    "atlassian": {
+      "cardTitle": "Atlassian",
+      "fields": {
+        "clientId": "ID Cliente",
+        "clientSecret": "Segreto Cliente"
+      },
+      "placeholders": {
+        "clientId": "Il tuo Atlassian Client ID",
+        "clientSecret": "Inserisci il nuovo segreto cliente"
+      },
+      "saveSuccess": "Configurazione Atlassian salvata con successo",
+      "saveError": "Errore nel salvataggio della configurazione Atlassian"
+    },
     "messages": {
       "loadError": "Errore nel caricamento della configurazione delle integrazioni"
-    }
+    },
+    "statusConfigured": "Configurato",
+    "statusNotConfigured": "Non configurato",
+    "dialogSubtitle": "Inserisci le credenziali OAuth di questa integrazione.",
+    "remove": "Rimuovi",
+    "removing": "Rimozione...",
+    "removeSuccess": "Configurazione rimossa",
+    "removeError": "Impossibile rimuovere la configurazione",
+    "cancel": "Annulla"
   },
   "inboundEmail": {
-    "title": "Configurazione E-mail in Entrata",
-    "description": "Configura il provider di posta elettronica in entrata e le credenziali utilizzate per ricevere ed elaborare le e-mail in arrivo.",
+    "title": "E-mail in entrata (ricevi come conversazioni)",
+    "description": "Permette al CRM di ricevere e-mail come conversazioni. Richiede un servizio di ricezione esterno (relay, Mailgun o Mandrill) configurato per il tuo dominio.",
     "provider": {
       "label": "Servizio E-mail in Entrata",
       "relay": "Relay (Exim / Postfix / Qmail)",
@@ -425,10 +569,10 @@
     "saving": "Salvataggio..."
   },
   "frontendRuntime": {
-    "title": "Configurazione Frontend Runtime",
-    "description": "Configura le chiavi reCAPTCHA e Clarity caricate dal frontend all'avvio.",
+    "title": "Analytics e Sicurezza",
+    "description": "Chiavi di servizi front-end di terze parti: Google reCAPTCHA (protezione anti-bot) e Microsoft Clarity (analisi).",
     "fields": {
-      "cardTitle": "Chiavi Runtime",
+      "cardTitle": "reCAPTCHA e Clarity",
       "recaptchaSiteKey": "Chiave del Sito reCAPTCHA",
       "clarityProjectId": "ID del Progetto Clarity"
     },

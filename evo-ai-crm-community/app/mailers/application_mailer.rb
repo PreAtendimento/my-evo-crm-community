@@ -1,6 +1,8 @@
 class ApplicationMailer < ActionMailer::Base
   include ActionView::Helpers::SanitizeHelper
 
+  DEFAULT_SENDER_EMAIL = 'accounts@evoai.app'.freeze
+
   default from: proc { ApplicationMailer.get_mailer_sender_email }
   around_action :switch_locale
   before_action :load_dynamic_mail_settings
@@ -97,7 +99,12 @@ class ApplicationMailer < ActionMailer::Base
       options = options.merge(api_key: @dynamic_resend_api_key)
     end
 
-    message.delivery_method(@dynamic_delivery_method, options)
+    delivery_class = self.class.delivery_methods[@dynamic_delivery_method]
+    if delivery_class.nil?
+      Rails.logger.warn "ApplicationMailer: unregistered delivery method '#{@dynamic_delivery_method}' — passing symbol directly, mail gem may reject it"
+      delivery_class = @dynamic_delivery_method
+    end
+    message.delivery_method(delivery_class, options)
   end
 
   def handle_smtp_exceptions(message)
@@ -147,10 +154,10 @@ class ApplicationMailer < ActionMailer::Base
     begin
       # Try GlobalConfig first, then fallback to ENV
       sender_email = GlobalConfigService.load('MAILER_SENDER_EMAIL', nil) if defined?(GlobalConfigService)
-      sender_email.presence || ENV.fetch('MAILER_SENDER_EMAIL', 'Evolution <accounts@evoai.app>')
+      sender_email.presence || ENV.fetch('MAILER_SENDER_EMAIL', DEFAULT_SENDER_EMAIL)
     rescue => e
       Rails.logger.warn "Failed to load MAILER_SENDER_EMAIL from GlobalConfig: #{e.message}" if defined?(Rails.logger)
-      ENV.fetch('MAILER_SENDER_EMAIL', 'Evolution <accounts@evoai.app>')
+      ENV.fetch('MAILER_SENDER_EMAIL', DEFAULT_SENDER_EMAIL)
     end
   end
 

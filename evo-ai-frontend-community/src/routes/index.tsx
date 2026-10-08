@@ -6,6 +6,7 @@ import CustomerRoute from './CustomerRoute';
 import SmartRedirect from './SmartRedirect';
 import RouterGuard from '@/guards/RouterGuard';
 import PermissionRoute from './PermissionRoute';
+import { PluginRoutes, type PluginRoute as PluginRouteType } from '@/plugin-host';
 
 import MainLayout from '@/components/layout/MainLayout';
 
@@ -25,10 +26,13 @@ import MondayCallback from '@/pages/MondayCallback';
 import AtlassianCallback from '@/pages/AtlassianCallback';
 import MicrosoftCallback from '@/pages/MicrosoftCallback';
 import SurveyResponse from '@/pages/Public/Survey/SurveyResponse';
+import PublicChatPage from '@/pages/Public/Chat/ChatPage';
+import FormPage from '@/pages/Public/Form/FormPage';
 
 // Páginas customer
 import Dashboard from '@/pages/Customer/Dashboard';
 import Agents from '@/pages/Customer/Agents';
+import AgentsIndexRedirect from '@/components/agents/AgentsIndexRedirect';
 import AgentEditPage from '@/pages/Customer/Agents/Agent/AgentEditPage';
 import MCPServers from '@/pages/Customer/Agents/MCPServers';
 import CustomMCPServers from '@/pages/Customer/Agents/CustomMCPServers';
@@ -39,18 +43,33 @@ import ScheduledActions from '@/pages/Customer/Contacts/ScheduledActions';
 import { Channels, ChannelSettings, NewChannel } from '@/pages/Customer/Channels';
 const ChatPage = React.lazy(() => import('@/pages/Customer/Chat/ChatPage'));
 
-// import Automation from '../pages/Customer/Automation';
+import Automation from '../pages/Customer/Automation';
+import AutomationForm from '../pages/Customer/Automation/AutomationForm';
 // import AutomationFlowEditor from '../pages/Customer/Automation/AutomationFlowEditor';
 import Pipelines from '@/pages/Customer/Pipelines/Pipelines';
 import PipelineKanban from '@/pages/Customer/Pipelines/PipelineKanban';
+import PipelineFormPage from '@/pages/Customer/Pipelines/PipelineFormPage';
 import { AccountSettings } from '@/pages/Customer/Settings/Account';
 import Teams from '@/pages/Customer/Settings/Teams/Teams';
 import { AddUsers } from '@/pages/Customer/Settings/Teams';
 import Users from '@/pages/Customer/Settings/Users';
 import Labels from '@/pages/Customer/Settings/Labels';
 import CustomAttributes from '@/pages/Customer/Settings/CustomAttributes';
+import Segments from '@/pages/Customer/Settings/Segments/Segments';
+import SegmentCreateEdit from '@/pages/Customer/Settings/Segments/SegmentCreateEdit';
+import Journey from '@/pages/Customer/Journey/Journey';
+import JourneyFlowEditor from '@/pages/Customer/Journey/JourneyFlowEditor';
+import Campaigns from '@/pages/Customer/Campaigns/Campaigns';
+import NewCampaign from '@/pages/Customer/Campaigns/NewCampaign/NewCampaign';
 import CannedResponses from '@/pages/Customer/Settings/CannedResponses';
+import AiCredentials from '@/pages/Customer/Settings/AiCredentials';
+import IntegrationCredentials from '@/pages/Customer/Settings/IntegrationCredentials';
+import MessageTemplates from '@/pages/Customer/Settings/MessageTemplates';
 import { Macros } from '@/pages/Customer/Settings/Macros';
+import Products, { ProductsImport } from '@/pages/Customer/Settings/Products';
+import CrmForms from '@/pages/Customer/Settings/CrmForms';
+import ChatPages from '@/pages/Customer/Settings/ChatPages';
+import Templates from '@/pages/Customer/Settings/Templates/Templates';
 import { Integrations } from '@/pages/Customer/Settings/Integrations';
 import EmailTemplateEditor from '@/pages/Customer/Settings/EmailTemplateEditor';
 import WebhooksPage from '../pages/Customer/Settings/Integrations/WebhooksPage';
@@ -65,19 +84,17 @@ import HubSpotPage from '../pages/Customer/Settings/Integrations/HubSpotPage';
 import ShopifyPage from '../pages/Customer/Settings/Integrations/ShopifyPage';
 import LinearPage from '../pages/Customer/Settings/Integrations/LinearPage';
 import DashboardAppPage from '../pages/Customer/DashboardApp';
-// import { Overview, Conversations } from '../pages/Customer/Reports';
-// import * as Reports from '../pages/Customer/Reports';
 
 // Páginas admin
 import AdminSettingsLayout from '@/pages/Admin/Settings';
+const RolesList = React.lazy(() => import('@/pages/Admin/Roles/RolesList'));
+const RoleDetail = React.lazy(() => import('@/pages/Admin/Roles/RoleDetail'));
 const SmtpConfig = React.lazy(() => import('@/pages/Admin/Settings/SmtpConfig'));
 const StorageConfig = React.lazy(() => import('@/pages/Admin/Settings/StorageConfig'));
-const SocialLoginConfig = React.lazy(() => import('@/pages/Admin/Settings/SocialLoginConfig'));
 const ChannelConfig = React.lazy(() => import('@/pages/Admin/Settings/ChannelConfig'));
 const OpenAIConfig = React.lazy(() => import('@/pages/Admin/Settings/OpenAIConfig'));
 const IntegrationsConfig = React.lazy(() => import('@/pages/Admin/Settings/IntegrationsConfig'));
-const InboundEmailConfig = React.lazy(() => import('@/pages/Admin/Settings/InboundEmailConfig'));
-const FrontendRuntimeConfig = React.lazy(() => import('@/pages/Admin/Settings/FrontendRuntimeConfig'));
+const EvolutionHubConfig = React.lazy(() => import('@/pages/Admin/Settings/EvolutionHubConfig'));
 
 // Página de tutoriais
 import Tutorials from '@/pages/Customer/Tutorials';
@@ -361,6 +378,26 @@ const AppRouter = () => {
             }
           />
 
+          {/* Public lead-capture form route (B14.02) */}
+          <Route
+            path="/f/:slug"
+            element={
+              <PublicRoute>
+                <FormPage />
+              </PublicRoute>
+            }
+          />
+
+          {/* Public chat page route (B14.03) */}
+          <Route
+            path="/chat/:slug"
+            element={
+              <PublicRoute>
+                <PublicChatPage />
+              </PublicRoute>
+            }
+          />
+
           {/* Rota de Setup Inicial */}
           <Route path="/setup" element={<Setup />} />
           <Route path="/setup/onboarding" element={<OnboardingPage />} />
@@ -426,6 +463,21 @@ const AppRouter = () => {
           />
 
           <Route
+            path="/pipelines/new"
+            element={
+              <PrivateRoute>
+                <CustomerRoute>
+                  <MainLayout>
+                    <PermissionRoute resource="pipelines" action="create">
+                      <PipelineFormPage />
+                    </PermissionRoute>
+                  </MainLayout>
+                </CustomerRoute>
+              </PrivateRoute>
+            }
+          />
+
+          <Route
             path="/pipelines/:pipelineId"
             element={
               <PrivateRoute>
@@ -440,13 +492,13 @@ const AppRouter = () => {
             }
           />
 
-          {/* <Route
+          <Route
             path="/automation"
             element={
               <PrivateRoute>
                 <CustomerRoute>
                   <MainLayout>
-                    <PermissionRoute resource="automations" action="read">
+                    <PermissionRoute resource="automation_rules" action="read">
                       <Automation />
                     </PermissionRoute>
                   </MainLayout>
@@ -456,17 +508,170 @@ const AppRouter = () => {
           />
 
           <Route
+            path="/automation/new"
+            element={
+              <PrivateRoute>
+                <CustomerRoute>
+                  <MainLayout>
+                    <PermissionRoute resource="automation_rules" action="create">
+                      <AutomationForm mode="create" />
+                    </PermissionRoute>
+                  </MainLayout>
+                </CustomerRoute>
+              </PrivateRoute>
+            }
+          />
+
+          <Route
+            path="/automation/:id/edit"
+            element={
+              <PrivateRoute>
+                <CustomerRoute>
+                  <MainLayout>
+                    <PermissionRoute resource="automation_rules" action="update">
+                      <AutomationForm mode="edit" />
+                    </PermissionRoute>
+                  </MainLayout>
+                </CustomerRoute>
+              </PrivateRoute>
+            }
+          />
+
+          {/* <Route
             path="/automation/:id/flow"
             element={
               <PrivateRoute>
                 <CustomerRoute>
-                  <PermissionRoute resource="automations" action="update">
+                  <PermissionRoute resource="automation_rules" action="update">
                     <AutomationFlowEditor />
                   </PermissionRoute>
                 </CustomerRoute>
               </PrivateRoute>
             }
           /> */}
+
+          {/* Segments (settings subroute) */}
+          <Route
+            path="/settings/segments"
+            element={
+              <PrivateRoute>
+                <CustomerRoute>
+                  <MainLayout>
+                    <PermissionRoute resource="segments" action="read">
+                      <Segments />
+                    </PermissionRoute>
+                  </MainLayout>
+                </CustomerRoute>
+              </PrivateRoute>
+            }
+          />
+
+          <Route
+            path="/settings/segments/new"
+            element={
+              <PrivateRoute>
+                <CustomerRoute>
+                  <MainLayout>
+                    <PermissionRoute resource="segments" action="create">
+                      <SegmentCreateEdit />
+                    </PermissionRoute>
+                  </MainLayout>
+                </CustomerRoute>
+              </PrivateRoute>
+            }
+          />
+
+          <Route
+            path="/settings/segments/:id/edit"
+            element={
+              <PrivateRoute>
+                <CustomerRoute>
+                  <MainLayout>
+                    <PermissionRoute resource="segments" action="update">
+                      <SegmentCreateEdit />
+                    </PermissionRoute>
+                  </MainLayout>
+                </CustomerRoute>
+              </PrivateRoute>
+            }
+          />
+
+          {/* Journeys */}
+          <Route
+            path="/journeys"
+            element={
+              <PrivateRoute>
+                <CustomerRoute>
+                  <MainLayout>
+                    <PermissionRoute resource="journeys" action="read">
+                      <Journey />
+                    </PermissionRoute>
+                  </MainLayout>
+                </CustomerRoute>
+              </PrivateRoute>
+            }
+          />
+
+          <Route
+            path="/journey/:id/flow"
+            element={
+              <PrivateRoute>
+                <CustomerRoute>
+                  <MainLayout>
+                    <PermissionRoute resource="journeys" action="update">
+                      <JourneyFlowEditor />
+                    </PermissionRoute>
+                  </MainLayout>
+                </CustomerRoute>
+              </PrivateRoute>
+            }
+          />
+
+          {/* Campaigns */}
+          <Route
+            path="/campaigns"
+            element={
+              <PrivateRoute>
+                <CustomerRoute>
+                  <MainLayout>
+                    <PermissionRoute resource="campaigns" action="read">
+                      <Campaigns />
+                    </PermissionRoute>
+                  </MainLayout>
+                </CustomerRoute>
+              </PrivateRoute>
+            }
+          />
+
+          <Route
+            path="/campaigns/new"
+            element={
+              <PrivateRoute>
+                <CustomerRoute>
+                  <MainLayout>
+                    <PermissionRoute resource="campaigns" action="create">
+                      <NewCampaign />
+                    </PermissionRoute>
+                  </MainLayout>
+                </CustomerRoute>
+              </PrivateRoute>
+            }
+          />
+
+          <Route
+            path="/campaigns/:id/edit"
+            element={
+              <PrivateRoute>
+                <CustomerRoute>
+                  <MainLayout>
+                    <PermissionRoute resource="campaigns" action="update">
+                      <NewCampaign />
+                    </PermissionRoute>
+                  </MainLayout>
+                </CustomerRoute>
+              </PrivateRoute>
+            }
+          />
 
           <Route
             path="/settings/account"
@@ -489,7 +694,8 @@ const AppRouter = () => {
               <PrivateRoute>
                 <CustomerRoute>
                   <MainLayout>
-                    <PermissionRoute resource="users" action="read">
+                    {/* EVO-1938: users.manage (admin) — agents hold users.read but not manage */}
+                    <PermissionRoute resource="users" action="manage">
                       <Users />
                     </PermissionRoute>
                   </MainLayout>
@@ -504,7 +710,7 @@ const AppRouter = () => {
               <PrivateRoute>
                 <CustomerRoute>
                   <MainLayout>
-                    <PermissionRoute resource="teams" action="read">
+                    <PermissionRoute resource="teams" action="manage">
                       <Teams />
                     </PermissionRoute>
                   </MainLayout>
@@ -519,7 +725,7 @@ const AppRouter = () => {
               <PrivateRoute>
                 <CustomerRoute>
                   <MainLayout>
-                    <PermissionRoute resource="teams" action="create">
+                    <PermissionRoute resource="teams" action="manage">
                       <AddUsers />
                     </PermissionRoute>
                   </MainLayout>
@@ -549,7 +755,13 @@ const AppRouter = () => {
               <PrivateRoute>
                 <CustomerRoute>
                   <MainLayout>
-                    <PermissionRoute resource="custom_attribute_definitions" action="read">
+                    <PermissionRoute
+                      permissions={[
+                        'custom_attribute_definitions.create',
+                        'custom_attribute_definitions.update',
+                        'custom_attribute_definitions.delete',
+                      ]}
+                    >
                       <CustomAttributes />
                     </PermissionRoute>
                   </MainLayout>
@@ -574,13 +786,133 @@ const AppRouter = () => {
           />
 
           <Route
+            path="/settings/ai-credentials"
+            element={
+              <PrivateRoute>
+                <CustomerRoute>
+                  <MainLayout>
+                    <PermissionRoute resource="ai_api_keys" action="read">
+                      <AiCredentials />
+                    </PermissionRoute>
+                  </MainLayout>
+                </CustomerRoute>
+              </PrivateRoute>
+            }
+          />
+
+          <Route
+            path="/settings/integration-credentials"
+            element={
+              <PrivateRoute>
+                <CustomerRoute>
+                  <MainLayout>
+                    <PermissionRoute resource="ai_integration_credentials" action="read">
+                      <IntegrationCredentials />
+                    </PermissionRoute>
+                  </MainLayout>
+                </CustomerRoute>
+              </PrivateRoute>
+            }
+          />
+
+          <Route
+            path="/settings/message-templates"
+            element={
+              <PrivateRoute>
+                <CustomerRoute>
+                  <MainLayout>
+                    <PermissionRoute resource="message_templates" action="manage">
+                      <MessageTemplates />
+                    </PermissionRoute>
+                  </MainLayout>
+                </CustomerRoute>
+              </PrivateRoute>
+            }
+          />
+
+          <Route
+            path="/products"
+            element={
+              <PrivateRoute>
+                <CustomerRoute>
+                  <MainLayout>
+                    <PermissionRoute resource="products" action="read">
+                      <Products />
+                    </PermissionRoute>
+                  </MainLayout>
+                </CustomerRoute>
+              </PrivateRoute>
+            }
+          />
+
+          <Route
+            path="/settings/crm-forms"
+            element={
+              <PrivateRoute>
+                <CustomerRoute>
+                  <MainLayout>
+                    <PermissionRoute resource="crm_forms" action="read">
+                      <CrmForms />
+                    </PermissionRoute>
+                  </MainLayout>
+                </CustomerRoute>
+              </PrivateRoute>
+            }
+          />
+
+          <Route
+            path="/settings/chat-pages"
+            element={
+              <PrivateRoute>
+                <CustomerRoute>
+                  <MainLayout>
+                    <PermissionRoute resource="chat_pages" action="read">
+                      <ChatPages />
+                    </PermissionRoute>
+                  </MainLayout>
+                </CustomerRoute>
+              </PrivateRoute>
+            }
+          />
+
+          <Route
+            path="/products/import"
+            element={
+              <PrivateRoute>
+                <CustomerRoute>
+                  <MainLayout>
+                    <PermissionRoute resource="products" action="create">
+                      <ProductsImport />
+                    </PermissionRoute>
+                  </MainLayout>
+                </CustomerRoute>
+              </PrivateRoute>
+            }
+          />
+
+          <Route
             path="/settings/macros"
             element={
               <PrivateRoute>
                 <CustomerRoute>
                   <MainLayout>
-                    <PermissionRoute resource="macros" action="read">
+                    <PermissionRoute resource="macros" action="manage">
                       <Macros />
+                    </PermissionRoute>
+                  </MainLayout>
+                </CustomerRoute>
+              </PrivateRoute>
+            }
+          />
+
+          <Route
+            path="/settings/templates"
+            element={
+              <PrivateRoute>
+                <CustomerRoute>
+                  <MainLayout>
+                    <PermissionRoute resource="templates" action="read">
+                      <Templates />
                     </PermissionRoute>
                   </MainLayout>
                 </CustomerRoute>
@@ -765,7 +1097,7 @@ const AppRouter = () => {
               <PrivateRoute>
                 <CustomerRoute>
                   <MainLayout>
-                    <PermissionRoute resource="integrations" action="read">
+                    <PermissionRoute resource="dashboard_apps" action="read">
                       <DashboardAppPage />
                     </PermissionRoute>
                   </MainLayout>
@@ -813,90 +1145,13 @@ const AppRouter = () => {
             }
           />
 
-          {/* Reports Routes */}
-          {/* <Route
-            path="/reports/overview"
-            element={
-              <PrivateRoute>
-                <CustomerRoute>
-                  <MainLayout>
-                    <PermissionRoute resource="reports" action="read">
-                      <Overview />
-                    </PermissionRoute>
-                  </MainLayout>
-                </CustomerRoute>
-              </PrivateRoute>
-            }
-          />
-          <Route
-            path="/reports/conversations"
-            element={
-              <PrivateRoute>
-                <CustomerRoute>
-                  <MainLayout>
-                    <PermissionRoute resource="reports" action="read">
-                      <Conversations />
-                    </PermissionRoute>
-                  </MainLayout>
-                </CustomerRoute>
-              </PrivateRoute>
-            }
-          />
-          <Route
-            path="/reports/users"
-            element={
-              <PrivateRoute>
-                <CustomerRoute>
-                  <MainLayout>
-                    <PermissionRoute resource="reports" action="read">
-                      <Reports.Agents />
-                    </PermissionRoute>
-                  </MainLayout>
-                </CustomerRoute>
-              </PrivateRoute>
-            }
-          />
-          <Route
-            path="/reports/labels"
-            element={
-              <PrivateRoute>
-                <CustomerRoute>
-                  <MainLayout>
-                    <PermissionRoute resource="reports" action="read">
-                      <Reports.Labels />
-                    </PermissionRoute>
-                  </MainLayout>
-                </CustomerRoute>
-              </PrivateRoute>
-            }
-          /> */}
-          <Route
-            path="/bots"
-            element={
-              <PrivateRoute>
-                <CustomerRoute>
-                  <MainLayout>
-                    <PermissionRoute resource="bots" action="read">
-                      <div className="flex items-center justify-center h-full">
-                        <div className="text-center">
-                          <h2 className="text-2xl font-bold mb-2">🤖 Bots</h2>
-                          <p className="text-muted-foreground">Página em desenvolvimento</p>
-                        </div>
-                      </div>
-                    </PermissionRoute>
-                  </MainLayout>
-                </CustomerRoute>
-              </PrivateRoute>
-            }
-          />
-
           <Route
             path="/channels"
             element={
               <PrivateRoute>
                 <CustomerRoute>
                   <MainLayout>
-                    <PermissionRoute resource="channels" action="read">
+                    <PermissionRoute resource="inboxes" action="read">
                       <Channels />
                     </PermissionRoute>
                   </MainLayout>
@@ -911,7 +1166,7 @@ const AppRouter = () => {
               <PrivateRoute>
                 <CustomerRoute>
                   <MainLayout>
-                    <PermissionRoute resource="channels" action="create">
+                    <PermissionRoute resource="inboxes" action="create">
                       <NewChannel />
                     </PermissionRoute>
                   </MainLayout>
@@ -926,7 +1181,7 @@ const AppRouter = () => {
               <PrivateRoute>
                 <CustomerRoute>
                   <MainLayout>
-                    <PermissionRoute resource="channels" action="create">
+                    <PermissionRoute resource="inboxes" action="update">
                       <ChannelSettings />
                     </PermissionRoute>
                   </MainLayout>
@@ -941,7 +1196,7 @@ const AppRouter = () => {
               <PrivateRoute>
                 <CustomerRoute>
                   <MainLayout>
-                    <PermissionRoute resource="message_templates" action="create">
+                    <PermissionRoute resource="message_templates" action="manage">
                       <EmailTemplateEditor />
                     </PermissionRoute>
                   </MainLayout>
@@ -950,28 +1205,7 @@ const AppRouter = () => {
             }
           />
 
-          <Route
-            path="/reports"
-            element={
-              <PrivateRoute>
-                <CustomerRoute>
-                  <MainLayout>
-                    <PermissionRoute resource="reports" action="read">
-                      <div className="flex items-center justify-center h-full">
-                        <div className="text-center">
-                          <h2 className="text-2xl font-bold mb-2">📊 Relatórios</h2>
-                          <p className="text-muted-foreground">Página em desenvolvimento</p>
-                        </div>
-                      </div>
-                    </PermissionRoute>
-                  </MainLayout>
-                </CustomerRoute>
-              </PrivateRoute>
-            }
-          />
-
-          {/* Rota principal de agents redireciona para /agents/list */}
-          <Route path="/agents" element={<Navigate to="/agents/list" replace />} />
+          <Route path="/agents" element={<AgentsIndexRedirect />} />
 
           {/* Lista de agentes */}
           <Route
@@ -1065,6 +1299,36 @@ const AppRouter = () => {
           />
 
           <Route
+            path="/agents/custom-mcp-servers/new"
+            element={
+              <PrivateRoute>
+                <CustomerRoute>
+                  <MainLayout>
+                    <PermissionRoute resource="ai_custom_mcp_servers" action="create">
+                      <CustomMCPServers />
+                    </PermissionRoute>
+                  </MainLayout>
+                </CustomerRoute>
+              </PrivateRoute>
+            }
+          />
+
+          <Route
+            path="/agents/custom-mcp-servers/:id/edit"
+            element={
+              <PrivateRoute>
+                <CustomerRoute>
+                  <MainLayout>
+                    <PermissionRoute resource="ai_custom_mcp_servers" action="update">
+                      <CustomMCPServers />
+                    </PermissionRoute>
+                  </MainLayout>
+                </CustomerRoute>
+              </PrivateRoute>
+            }
+          />
+
+          <Route
             path="/agents/tools"
             element={
               <PrivateRoute>
@@ -1095,14 +1359,46 @@ const AppRouter = () => {
           />
 
           <Route
+            path="/agents/custom-tools/new"
+            element={
+              <PrivateRoute>
+                <CustomerRoute>
+                  <MainLayout>
+                    <PermissionRoute resource="ai_custom_tools" action="create">
+                      <CustomTools />
+                    </PermissionRoute>
+                  </MainLayout>
+                </CustomerRoute>
+              </PrivateRoute>
+            }
+          />
+
+          <Route
+            path="/agents/custom-tools/:id/edit"
+            element={
+              <PrivateRoute>
+                <CustomerRoute>
+                  <MainLayout>
+                    <PermissionRoute resource="ai_custom_tools" action="update">
+                      <CustomTools />
+                    </PermissionRoute>
+                  </MainLayout>
+                </CustomerRoute>
+              </PrivateRoute>
+            }
+          />
+
+          <Route
             path="/dashboard"
             element={
               <PrivateRoute>
                 <CustomerRoute>
                   <MainLayout>
-                    <PermissionRoute resource="dashboard" action="read">
-                      <Dashboard />
-                    </PermissionRoute>
+                    {/* No PermissionRoute: `dashboard.read` is a basic auth read,
+                        not a catalog resource, so `can('dashboard','read')` denies
+                        for everyone. Dashboard is the landing page — always visible
+                        to authenticated users (EVO-2071 AC7). */}
+                    <Dashboard />
                   </MainLayout>
                 </CustomerRoute>
               </PrivateRoute>
@@ -1129,6 +1425,40 @@ const AppRouter = () => {
 
           {/* Rotas específicas de canais foram integradas no fluxo unificado do NewChannel */}
           {/* Meta e WhatsApp Cloud agora são parte do componente NewChannel */}
+
+          {/* Roles & Permissions Routes */}
+          <Route
+            path="/settings/roles"
+            element={
+              <PrivateRoute>
+                <CustomerRoute>
+                  <MainLayout>
+                    <PermissionRoute resource="roles" action="read">
+                      <Suspense fallback={<div className="flex items-center justify-center h-full"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" /></div>}>
+                        <RolesList />
+                      </Suspense>
+                    </PermissionRoute>
+                  </MainLayout>
+                </CustomerRoute>
+              </PrivateRoute>
+            }
+          />
+          <Route
+            path="/settings/roles/:id"
+            element={
+              <PrivateRoute>
+                <CustomerRoute>
+                  <MainLayout>
+                    <PermissionRoute resource="roles" action="read">
+                      <Suspense fallback={<div className="flex items-center justify-center h-full"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" /></div>}>
+                        <RoleDetail />
+                      </Suspense>
+                    </PermissionRoute>
+                  </MainLayout>
+                </CustomerRoute>
+              </PrivateRoute>
+            }
+          />
 
           {/* Admin Settings Routes */}
           <Route
@@ -1162,14 +1492,6 @@ const AppRouter = () => {
               }
             />
             <Route
-              path="social-login"
-              element={
-                <Suspense fallback={<div className="flex items-center justify-center h-full"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" /></div>}>
-                  <SocialLoginConfig />
-                </Suspense>
-              }
-            />
-            <Route
               path="channels"
               element={
                 <Suspense fallback={<div className="flex items-center justify-center h-full"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" /></div>}>
@@ -1194,18 +1516,10 @@ const AppRouter = () => {
               }
             />
             <Route
-              path="inbound-email"
+              path="evolution-hub"
               element={
                 <Suspense fallback={<div className="flex items-center justify-center h-full"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" /></div>}>
-                  <InboundEmailConfig />
-                </Suspense>
-              }
-            />
-            <Route
-              path="frontend-runtime"
-              element={
-                <Suspense fallback={<div className="flex items-center justify-center h-full"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" /></div>}>
-                  <FrontendRuntimeConfig />
+                  <EvolutionHubConfig />
                 </Suspense>
               }
             />
@@ -1235,7 +1549,7 @@ const AppRouter = () => {
           />
 
           <Route
-            path="/profile"
+            path="/profile/:section?"
             element={
               <PrivateRoute>
                 <MainLayout>
@@ -1254,6 +1568,28 @@ const AppRouter = () => {
               </PrivateRoute>
             }
           />
+
+          {PluginRoutes({
+            namespace: 'admin',
+            wrap: (element, route: PluginRouteType) => (
+              <PrivateRoute>
+                {route.layout === 'none' ? element : <MainLayout>{element}</MainLayout>}
+              </PrivateRoute>
+            ),
+          })}
+
+          {PluginRoutes({
+            namespace: 'customer',
+            wrap: (element, route: PluginRouteType) => (
+              <PrivateRoute>
+                <CustomerRoute>
+                  {route.layout === 'none' ? element : <MainLayout>{element}</MainLayout>}
+                </CustomerRoute>
+              </PrivateRoute>
+            ),
+          })}
+
+          {PluginRoutes({ namespace: 'public' })}
 
           {/* Rota 404 - Página não encontrada */}
           <Route path="*" element={<NotFound />} />

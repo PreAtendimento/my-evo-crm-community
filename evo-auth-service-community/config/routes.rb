@@ -55,6 +55,7 @@ Rails.application.routes.draw do
           post :forgot_password
           post :reset_password
           post :confirmation
+          post :resend_confirmation
         end
       end
 
@@ -132,6 +133,8 @@ Rails.application.routes.draw do
         member do
           get :role
           post :check_permission
+          # CRM-210: admin-driven, unlike the token-based auth#reset_password.
+          post :set_password
         end
       end
 
@@ -155,6 +158,10 @@ Rails.application.routes.draw do
       resources :roles do
         collection do
           get :full
+          get :account_user_roles
+        end
+        member do
+          put :bulk_update_permissions
         end
       end
 

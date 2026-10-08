@@ -5,10 +5,10 @@
     "actions": {
       "chat": "Converser",
       "viewDetails": "Voir les détails",
-      "viewEvents": "Voir les événements",
       "edit": "Modifier le contact",
       "delete": "Supprimer le contact"
-    }
+    },
+    "dataProtectedTooltip": "Données protégées par la politique du compte"
   },
   "details": {
     "title": "Détails du Contact",
@@ -19,7 +19,8 @@
       "pipeline": "Pipeline",
       "history": "Historique",
       "notes": "Notes",
-      "attributes": "Attributs"
+      "attributes": "Attributs",
+      "events": "Événements"
     },
     "actions": {
       "startConversation": "Démarrer une Conversation",
@@ -35,7 +36,8 @@
       "location": "Localisation",
       "description": "Description",
       "timeline": "Chronologie",
-      "linkedCompanies": "Entreprises Liées"
+      "linkedCompanies": "Entreprises Liées",
+      "socialProfiles": "Réseaux Sociaux"
     },
     "fields": {
       "name": "Nom",
@@ -59,148 +61,14 @@
     "errors": {
       "invalidDate": "Date invalide"
     },
-    "na": "N/A"
-  },
-  "events": {
-    "title": "Événements de {{name}}",
-    "subtitle": "Historique complet des activités et interactions",
-    "stats": {
-      "title": "Statistiques des Événements",
-      "loading": "Chargement des statistiques...",
-      "empty": "Aucune statistique disponible",
-      "total": "Total",
-      "events": "événements",
-      "first": "Premier",
-      "last": "Dernier",
-      "event": "événement",
-      "byType": "Événements par Type :"
-    },
-    "timeline": {
-      "title": "Historique des Événements",
-      "loading": "Chargement des événements...",
-      "empty": {
-        "title": "Aucun événement trouvé",
-        "description": "Ce contact ne possède pas encore d'événements enregistrés.",
-        "withFilters": "Aucun événement ne correspond aux filtres sélectionnés. Essayez d'ajuster les filtres."
-      },
-      "filters": {
-        "title": "Filtres",
-        "refresh": "Actualiser",
-        "eventType": "Type d'événement",
-        "eventName": "Nom de l'événement",
-        "actions": "Actions",
-        "expand": "Développer",
-        "collapse": "Réduire",
-        "clear": "Effacer les filtres"
-      },
-      "loadMore": "Charger plus d'événements ({{remaining}} restants)",
-      "showing": "Affichage de {{count}} sur {{total}} événements",
-      "page": "Page {{current}} sur {{total}}",
-      "ago": {
-        "minutes": "il y a {{count}} min",
-        "hours": "il y a {{count}}h",
-        "yesterday": "Hier"
+    "na": "N/A",
+    "page": {
+      "back": "Retour",
+      "close": "Fermer",
+      "notFound": {
+        "title": "Contact introuvable",
+        "description": "Impossible de trouver ce contact. Il a peut-être été supprimé."
       }
-    },
-    "types": {
-      "all": "Tous les types",
-      "identify": "Identification",
-      "track": "Suivi",
-      "page": "Page",
-      "screen": "Écran"
-    },
-    "names": {
-      "all": "Tous les événements",
-      "contact_created": "Contact Créé",
-      "contact_updated": "Contact Mis à Jour",
-      "label_added": "Étiquette Ajoutée",
-      "label_removed": "Étiquette Retirée",
-      "custom_attribute_changed": "Attribut Personnalisé Modifié",
-      "conversation_created": "Conversation Créée",
-      "conversation_updated": "Conversation Mise à Jour",
-      "conversation_deleted": "Conversation Supprimée",
-      "message_created": "Message Créé",
-      "message_updated": "Message Mis à Jour",
-      "message_deleted": "Message Supprimé",
-      "pipeline_conversation_created": "Ajouté au Pipeline",
-      "pipeline_conversation_updated": "Pipeline Mis à Jour",
-      "pipeline_conversation_added": "Ajouté au Pipeline",
-      "pipeline_conversation_deleted": "Retiré du Pipeline",
-      "pipeline_stage_changed": "Étape du Pipeline Modifiée",
-      "pipeline_custom_fields_updated": "Champs Personnalisés du Pipeline",
-      "contactCreated": "Contact créé",
-      "contactUpdated": "Contact mis à jour",
-      "labelAdded": "Étiquette ajoutée",
-      "labelRemoved": "Étiquette retirée",
-      "customAttributeChanged": "Attribut personnalisé modifié",
-      "conversationCreated": "Conversation créée",
-      "conversationUpdated": "Conversation mise à jour",
-      "messageCreated": "Message créé",
-      "pipelineCreated": "Pipeline créé",
-      "pipelineUpdated": "Pipeline mis à jour"
-    },
-    "descriptions": {
-      "contact_created": "Un nouveau contact a été créé dans le système",
-      "contact_updated": "{{count}} champ(s) ont été modifiés",
-      "label_added": "L'étiquette \"{{labelName}}\" a été ajoutée",
-      "label_removed": "L'étiquette \"{{labelName}}\" a été retirée",
-      "custom_attribute_changed": "L'attribut \"{{attributeName}}\" a été modifié",
-      "conversation_created": "Nouvelle conversation créée dans la boîte de réception \"{{inbox_name}}\"",
-      "conversation_updated": "Conversation mise à jour ({{count}} modifications)",
-      "message_created_incoming": "reçu du contact",
-      "message_created_outgoing": "envoyé par l'Agent",
-      "pipeline_added": "Ajouté au pipeline \"{{pipeline_name}}\" à l'étape \"{{pipeline_stage_name}}\"",
-      "pipeline_stage_changed": "Pipeline \"{{pipeline_name}}\" : déplacé de \"{{old_stage_name}}\" vers \"{{new_stage_name}}\"",
-      "pipeline_custom_fields": "Champs personnalisés du pipeline \"{{pipeline_name}}\" mis à jour (valeur totale : {{value}})",
-      "system": "Événement système"
-    },
-    "card": {
-      "properties": "Propriétés ({{count}})",
-      "traits": "Caractéristiques ({{count}})",
-      "conversationChanges": "Modifications de la Conversation",
-      "modified": "Modifié",
-      "contactChanges": "Modifications Effectuées",
-      "changeTypes": {
-        "added": "Ajouté",
-        "removed": "Retiré",
-        "modified": "Modifié"
-      },
-      "previous": "Précédent :",
-      "new": "Nouveau :",
-      "pipelineAdded": "Ajouté au Pipeline",
-      "pipeline": "Pipeline :",
-      "initialStage": "Étape Initiale :",
-      "stageChange": "Changement d'Étape",
-      "daysInPipeline": "Jours dans le pipeline : {{days}}",
-      "daysInStage": "Jours dans l'étape actuelle : {{days}}",
-      "services": "Services et Valeurs",
-      "total": "Total :",
-      "message": "Message",
-      "messageTypes": {
-        "incoming": "📥 Du Contact",
-        "outgoing": "📤 De l'Agent"
-      },
-      "type": "Type : {{type}}",
-      "channel": "Canal : {{channel}}",
-      "labelAdded": "Étiquette Ajoutée",
-      "labelRemoved": "Étiquette Retirée",
-      "customAttribute": "Attribut Personnalisé",
-      "attribute": "Attribut :",
-      "value": "Valeur :",
-      "conversationFields": {
-        "updated_at": "Horodatage de mise à jour modifié",
-        "waiting_since": "Temps d'attente mis à jour",
-        "first_reply_created_at": "Première réponse enregistrée",
-        "cached_label_list": "Liste des étiquettes mise à jour",
-        "status": "Statut de la conversation modifié",
-        "assignee_last_seen_at": "Dernière consultation de l'Agent",
-        "generic": "Le champ \"{{field}}\" a été modifié"
-      },
-      "inbox": "Boîte de réception : {{name}}",
-      "channelType": "Canal : {{type}}",
-      "labelUnknown": "Étiquette inconnue",
-      "yes": "Oui",
-      "no": "Non"
     }
   },
   "export": {
@@ -417,7 +285,6 @@
     "startConversation": "Démarrer une Conversation",
     "edit": "Modifier",
     "delete": "Supprimer",
-    "viewEvents": "Voir les Événements",
     "cancel": "Annuler",
     "save": "Enregistrer",
     "confirm": "Confirmer"
@@ -483,13 +350,20 @@
   },
   "type": {
     "person": "Personne",
-    "company": "Entreprise"
+    "company": "Entreprise",
+    "group": "Groupe"
   },
   "filter": {
     "title": "Filtrer les Contacts",
     "description": "Configurez les filtres pour trouver les contacts que vous recherchez",
     "apply": "Appliquer les Filtres",
     "clear": "Effacer les Filtres",
+    "popover": {
+      "trigger": "Filtres",
+      "title": "Filtrer les Contacts",
+      "clearAll": "Tout effacer",
+      "noOptions": "Aucune option disponible"
+    },
     "attribute": "Attribut",
     "operator": "Opérateur",
     "value": "Valeur",
@@ -519,7 +393,18 @@
       "identifier": "Identifiant",
       "created_at": "Date de Création",
       "last_activity_at": "Dernière Activité",
-      "type": "Type de Contact"
+      "type": "Type de Contact",
+      "labels": "Étiquettes",
+      "country_code": "Pays (code ISO)",
+      "city": "Ville",
+      "company": "Entreprise",
+      "blocked": "Statut"
+    },
+    "options": {
+      "blocked": {
+        "true": "Bloqué",
+        "false": "Non bloqué"
+      }
     }
   },
   "import": {
@@ -564,15 +449,16 @@
   },
   "table": {
     "columns": {
-      "contact": "Contact",
+      "name": "Nom",
+      "email": "E-mail",
+      "phone": "Téléphone",
       "type": "Type",
-      "tags": "Tags",
+      "labels": "Étiquettes",
       "status": "Statut",
       "pipelines": "Pipelines"
     },
     "actions": {
       "startConversation": "Démarrer une conversation",
-      "viewEvents": "Voir les événements",
       "edit": "Modifier le contact",
       "delete": "Supprimer le contact",
       "create": "Créer un contact"
@@ -630,6 +516,24 @@
       "noChannels": "Aucun canal disponible pour ce contact"
     },
     "unavailable": "Indisponible",
+    "templates": {
+      "noneForInbox": "Aucun modèle enregistré pour cette boîte de réception. Créez-en un dans les paramètres de la boîte de réception.",
+      "noApproved": "Aucun modèle approuvé par Meta pour l'instant. Les modèles listés sont en attente d'approbation et ne peuvent pas être envoyés.",
+      "pendingSelectedHint": "Ce modèle n'a pas encore été approuvé par Meta et ne peut pas être utilisé pour démarrer la conversation.",
+      "statusBadge": {
+        "approved": "Approuvé",
+        "pending": "En attente",
+        "rejected": "Rejeté",
+        "paused": "En pause",
+        "inactive": "Inactif",
+        "unknown": "Inconnu"
+      }
+    },
+    "toggle": {
+      "label": "Utiliser un Modèle",
+      "cloudRequires": "WhatsApp Cloud nécessite un modèle pour démarrer la conversation",
+      "using": "Utilisation du Modèle"
+    },
     "actions": {
       "cancel": "Annuler",
       "send": "Démarrer la Conversation",
@@ -729,5 +633,132 @@
     "contact": "Contact",
     "contactPlaceholder": "Rechercher un contact...",
     "noContactsFound": "Aucun contact trouvé"
+  },
+  "events": {
+    "timeline": {
+      "title": "Historique des événements",
+      "ariaLabel": "Chronologie des événements du contact",
+      "loading": "Chargement des événements...",
+      "loadingMore": "Chargement...",
+      "loadMore": "Charger plus",
+      "showing": "{{count}} événements",
+      "softCapped": "Affichage des {{cap}} derniers événements. Utilisez les filtres pour affiner.",
+      "empty": {
+        "default": "Ce contact n'a pas encore d'événements enregistrés.",
+        "withFilters": "Aucun événement ne correspond aux filtres appliqués."
+      },
+      "degraded": {
+        "banner": "Historique temporairement indisponible. Veuillez réessayer dans quelques instants.",
+        "retry": "Réessayer"
+      },
+      "error": {
+        "forbidden": "Vous n'avez pas la permission de voir l'historique de ce contact.",
+        "invalidFilters": "Filtres invalides. Vérifiez les champs et réessayez.",
+        "rateLimit": "Trop de requêtes. Veuillez patienter quelques secondes.",
+        "generic": "Échec du chargement des événements. Veuillez recharger la page.",
+        "retry": "Réessayer"
+      },
+      "crashed": {
+        "title": "Une erreur est survenue lors de l'affichage de l'historique.",
+        "reload": "Recharger"
+      }
+    },
+    "filters": {
+      "title": "Filtres",
+      "eventType": "Type",
+      "eventName": "Nom",
+      "channel": "Canal",
+      "campaign": "Campagne",
+      "campaignPlaceholder": "Filtrer par campagne",
+      "campaignSearchPlaceholder": "Rechercher des campagnes…",
+      "campaignLoading": "Chargement des campagnes…",
+      "campaignEmpty": "Aucune campagne trouvée",
+      "clearCampaign": "Effacer le filtre de campagne",
+      "occurredAfter": "Du",
+      "occurredBefore": "Au",
+      "clear": "Effacer les filtres",
+      "allEventNames": "Tous les noms",
+      "period": "Période",
+      "periodPresets": {
+        "today": "Aujourd'hui",
+        "7d": "7 derniers jours",
+        "30d": "30 derniers jours",
+        "all": "Toute la période"
+      }
+    },
+    "types": {
+      "_comment": "Les valeurs de termes de protocole (Identify/Track/Page/Screen/Segment) sont volontairement conservées non traduites dans toutes les locales.",
+      "all": "Tous les types",
+      "identify": "Identify",
+      "track": "Track",
+      "page": "Page",
+      "screen": "Screen",
+      "segment": "Segment"
+    },
+    "channels": {
+      "all": "Tous les canaux",
+      "api": "API",
+      "email": "Email",
+      "facebook": "Facebook (inclut la page Facebook)",
+      "instagram": "Instagram",
+      "line": "LINE",
+      "sms": "SMS",
+      "telegram": "Telegram",
+      "twilio_sms": "Twilio SMS",
+      "twitter": "Twitter (inclut le profil Twitter)",
+      "web_widget": "Site web",
+      "whatsapp": "WhatsApp"
+    },
+    "card": {
+      "expand": "Voir les détails",
+      "collapse": "Masquer les détails",
+      "properties": "Propriétés de l'événement",
+      "traits": "Attributs de l'événement",
+      "noData": "Aucune donnée supplémentaire pour cet événement",
+      "justNow": "à l'instant",
+      "enriched": {
+        "campaign": "Campagne : {{name}}",
+        "channel": "Canal : {{label}}",
+        "agent": "Agent : {{name}}"
+      }
+    },
+    "names": {
+      "contact_created": "Contact créé",
+      "contact_updated": "Contact mis à jour",
+      "contact_label_added": "Étiquette ajoutée",
+      "contact_label_removed": "Étiquette supprimée",
+      "contact_custom_attribute_changed": "Attribut personnalisé modifié",
+      "conversation_created": "Conversation créée",
+      "conversation_updated": "Conversation mise à jour",
+      "conversation_resolved": "Conversation résolue",
+      "conversation_activity": "Activité de la conversation",
+      "conversation_first_reply": "Première réponse",
+      "message_created": "Message envoyé",
+      "pipeline_conversation_created": "Conversation créée dans le pipeline",
+      "pipeline_conversation_updated": "Conversation mise à jour dans le pipeline",
+      "pipeline_stage_changed": "Étape du pipeline modifiée"
+    }
+  },
+  "notes": {
+    "title": "Notes",
+    "addPlaceholder": "Écrivez une note à propos de ce contact...",
+    "empty": "Aucune note pour le moment.",
+    "actions": {
+      "add": "Ajouter une note",
+      "adding": "Ajout en cours...",
+      "edit": "Modifier la note",
+      "delete": "Supprimer la note",
+      "cancel": "Annuler",
+      "save": "Enregistrer"
+    },
+    "messages": {
+      "loadError": "Erreur lors du chargement des notes",
+      "createSuccess": "Note ajoutée",
+      "createError": "Erreur lors de l'ajout de la note",
+      "updateSuccess": "Note mise à jour",
+      "updateError": "Erreur lors de la mise à jour de la note",
+      "deleteSuccess": "Note supprimée",
+      "deleteError": "Erreur lors de la suppression de la note"
+    }
   }
 }

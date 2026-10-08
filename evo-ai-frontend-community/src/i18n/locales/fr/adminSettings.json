@@ -3,12 +3,9 @@
   "navigation": {
     "email": "E-mail",
     "storage": "Stockage",
-    "socialLogin": "Connexion Sociale",
     "channels": "Canaux",
     "openai": "OpenAI",
-    "integrations": "Integrations",
-    "inboundEmail": "E-mail Entrant",
-    "frontendRuntime": "Frontend Runtime"
+    "integrations": "Integrations"
   },
   "email": {
     "title": "Configuration E-mail",
@@ -61,7 +58,11 @@
     "testConnection": "Tester la Connexion",
     "testing": "Test en cours...",
     "testFailed": "Le test de connexion a echoue",
-    "testError": "Impossible d'executer le test de connexion"
+    "testError": "Impossible d'executer le test de connexion",
+    "envWarning": {
+      "title": "Avertissement :",
+      "body": "Enregistrer ici conserve les valeurs, mais le service email lit toujours les identifiants SMTP des variables d'environnement au démarrage. Jusqu'à ce que EVO-1049 soit livré, configurez SMTP via env vars pour prendre effet."
+    }
   },
   "storage": {
     "title": "Configuration du Stockage",
@@ -70,13 +71,16 @@
       "label": "Fournisseur de Stockage",
       "local": "Stockage Local",
       "amazon": "Amazon S3",
-      "s3Compatible": "Compatible S3"
+      "amazonHelp": "AWS S3 — utilise la Région et vos identifiants AWS. Aucun endpoint personnalisé requis.",
+      "s3CompatibleHelp": "Tout fournisseur compatible S3 qui n'est pas AWS (MinIO, Cloudflare R2, DigitalOcean Spaces…). Nécessite un Endpoint personnalisé.",
+      "s3Compatible": "Compatible S3 (MinIO, Cloudflare R2, DigitalOcean Spaces…)"
     },
     "fields": {
       "bucketName": "Nom du Bucket",
       "accessKeyId": "ID de Cle d'Acces",
       "accessSecret": "Cle d'Acces Secrete",
       "region": "Region",
+      "endpointHelp": "URL de l'endpoint de votre fournisseur compatible S3. Uniquement pour Compatible S3 — laissez vide pour AWS.",
       "endpoint": "Endpoint"
     },
     "placeholders": {
@@ -105,11 +109,15 @@
     "testConnection": "Tester la Connexion",
     "testing": "Test en cours...",
     "testFailed": "Le test de connexion a echoue",
-    "testError": "Impossible d'executer le test de connexion"
+    "testError": "Impossible d'executer le test de connexion",
+    "cloudWarning": {
+      "title": "Important :",
+      "body": "Les identifiants S3 (cle d'acces, secret, region et endpoint) sont integres dans la configuration du service au demarrage — les modifier ici necessite de redemarrer les services auth et CRM et leurs workers Sidekiq pour que les nouvelles valeurs prennent effet. Les changements de fournisseur peuvent prendre jusqu'a 60 secondes pour se propager sur tous les services. Les fichiers existants restent sur l'ancien fournisseur de stockage ; seuls les nouveaux telechargements utiliseront la configuration mise a jour."
+    }
   },
   "socialLogin": {
-    "title": "Configuration de Connexion Sociale",
-    "description": "Configurez les identifiants OAuth des fournisseurs de connexion sociale pour que les utilisateurs puissent se connecter avec Google ou Microsoft.",
+    "title": "Identifiants du fournisseur d'e-mail (OAuth)",
+    "description": "Identifiants d'application OAuth (Google / Microsoft) utilisés pour connecter les canaux e-mail Gmail et Outlook.",
     "google": {
       "cardTitle": "Google OAuth",
       "fields": {
@@ -156,6 +164,9 @@
     "saving": "Enregistrement..."
   },
   "channels": {
+    "email": {
+      "tabTitle": "E-mail"
+    },
     "title": "Integrations de Canaux",
     "description": "Configurez les identifiants pour les canaux de messagerie et integrations.",
     "secretConfigured": "Configure",
@@ -224,11 +235,11 @@
       "tabTitle": "Evolution",
       "fields": {
         "apiUrl": "URL de l'API",
-        "adminSecret": "Secret Admin"
+        "adminSecret": "Token Admin"
       },
       "placeholders": {
         "apiUrl": "https://evolution-api.exemple.com",
-        "adminSecret": "Entrez le nouveau secret admin"
+        "adminSecret": "Entrez le nouveau token admin"
       },
       "saveSuccess": "Configuration Evolution enregistree avec succes",
       "saveError": "Echec de l'enregistrement de la configuration Evolution"
@@ -237,15 +248,11 @@
       "tabTitle": "Evolution Go",
       "fields": {
         "apiUrl": "URL de l'API",
-        "adminSecret": "Secret Admin",
-        "instanceId": "ID d'Instance",
-        "instanceSecret": "Secret d'Instance"
+        "adminSecret": "Token Admin"
       },
       "placeholders": {
         "apiUrl": "https://evolution-go.exemple.com",
-        "adminSecret": "Entrez le nouveau secret admin",
-        "instanceId": "Votre Evolution Go Instance ID",
-        "instanceSecret": "Entrez le nouveau secret d'instance"
+        "adminSecret": "Entrez le nouveau token admin"
       },
       "saveSuccess": "Configuration Evolution Go enregistree avec succes",
       "saveError": "Echec de l'enregistrement de la configuration Evolution Go"
@@ -267,6 +274,16 @@
       "saveSuccess": "Configuration Twitter enregistree avec succes",
       "saveError": "Echec de l'enregistrement de la configuration Twitter"
     },
+    "clearConfig": {
+      "button": "Effacer la Configuration",
+      "dialogTitle": "Effacer la Configuration",
+      "dialogDescription": "Êtes-vous sûr ? Cela supprimera toutes les identifiants de ce fournisseur. Le fournisseur cessera de fonctionner jusqu'à ce que vous le reconfiguriez.",
+      "cancel": "Annuler",
+      "confirm": "Effacer",
+      "clearing": "Effacement...",
+      "success": "Configuration effacée avec succès",
+      "error": "Échec de l'effacement de la configuration"
+    },
     "messages": {
       "loadError": "Echec du chargement de la configuration des canaux"
     }
@@ -286,7 +303,9 @@
         "apiUrl": "https://api.openai.com/v1",
         "apiSecret": "Entrez la nouvelle cle API",
         "model": "gpt-4o"
-      }
+      },
+      "credentialMoved": "L'identifiant d'IA se trouve maintenant dans Paramètres > Identifiants d'IA.",
+      "goToCredentials": "Aller aux Identifiants d'IA"
     },
     "prompts": {
       "cardTitle": "Modeles de Prompts IA",
@@ -326,7 +345,7 @@
   },
   "integrations": {
     "title": "Configuration des Integrations",
-    "description": "Configurez les identifiants OAuth pour les integrations tierces telles que Linear, HubSpot, Shopify et Slack.",
+    "description": "Configurez les identifiants OAuth pour les integrations tierces telles que Linear, GitHub, Notion et autres.",
     "secretConfigured": "Configure",
     "secretNotConfigured": "Non configure",
     "clearSecret": "Effacer la valeur enregistree",
@@ -384,13 +403,138 @@
       "saveSuccess": "Configuration Slack enregistree avec succes",
       "saveError": "Echec de l'enregistrement de la configuration Slack"
     },
+    "github": {
+      "cardTitle": "GitHub",
+      "fields": {
+        "clientId": "ID Client",
+        "clientSecret": "Secret Client"
+      },
+      "placeholders": {
+        "clientId": "Votre GitHub Client ID",
+        "clientSecret": "Entrez le nouveau secret client"
+      },
+      "saveSuccess": "Configuration GitHub enregistree avec succes",
+      "saveError": "Echec de l'enregistrement de la configuration GitHub"
+    },
+    "notion": {
+      "cardTitle": "Notion",
+      "fields": {
+        "clientId": "ID Client",
+        "clientSecret": "Secret Client"
+      },
+      "placeholders": {
+        "clientId": "Votre Notion Client ID",
+        "clientSecret": "Entrez le nouveau secret client"
+      },
+      "saveSuccess": "Configuration Notion enregistree avec succes",
+      "saveError": "Echec de l'enregistrement de la configuration Notion"
+    },
+    "asana": {
+      "cardTitle": "Asana",
+      "fields": {
+        "clientId": "ID Client",
+        "clientSecret": "Secret Client"
+      },
+      "placeholders": {
+        "clientId": "Votre Asana Client ID",
+        "clientSecret": "Entrez le nouveau secret client"
+      },
+      "saveSuccess": "Configuration Asana enregistree avec succes",
+      "saveError": "Echec de l'enregistrement de la configuration Asana"
+    },
+    "canva": {
+      "cardTitle": "Canva",
+      "fields": {
+        "clientId": "ID Client",
+        "clientSecret": "Secret Client"
+      },
+      "placeholders": {
+        "clientId": "Votre Canva Client ID",
+        "clientSecret": "Entrez le nouveau secret client"
+      },
+      "saveSuccess": "Configuration Canva enregistree avec succes",
+      "saveError": "Echec de l'enregistrement de la configuration Canva"
+    },
+    "google_calendar": {
+      "cardTitle": "Google Calendar",
+      "fields": {
+        "clientId": "ID Client",
+        "clientSecret": "Secret Client"
+      },
+      "placeholders": {
+        "clientId": "Votre Google Calendar Client ID",
+        "clientSecret": "Entrez le nouveau secret client"
+      },
+      "saveSuccess": "Configuration Google Calendar enregistree avec succes",
+      "saveError": "Echec de l'enregistrement de la configuration Google Calendar"
+    },
+    "google_sheets": {
+      "cardTitle": "Google Sheets",
+      "fields": {
+        "clientId": "ID Client",
+        "clientSecret": "Secret Client"
+      },
+      "placeholders": {
+        "clientId": "Votre Google Sheets Client ID",
+        "clientSecret": "Entrez le nouveau secret client"
+      },
+      "saveSuccess": "Configuration Google Sheets enregistree avec succes",
+      "saveError": "Echec de l'enregistrement de la configuration Google Sheets"
+    },
+    "monday": {
+      "cardTitle": "Monday.com",
+      "fields": {
+        "clientId": "ID Client",
+        "clientSecret": "Secret Client"
+      },
+      "placeholders": {
+        "clientId": "Votre Monday.com Client ID",
+        "clientSecret": "Entrez le nouveau secret client"
+      },
+      "saveSuccess": "Configuration Monday.com enregistree avec succes",
+      "saveError": "Echec de l'enregistrement de la configuration Monday.com"
+    },
+    "paypal": {
+      "cardTitle": "PayPal",
+      "fields": {
+        "clientId": "ID Client",
+        "clientSecret": "Secret Client"
+      },
+      "placeholders": {
+        "clientId": "Votre PayPal Client ID",
+        "clientSecret": "Entrez le nouveau secret client"
+      },
+      "saveSuccess": "Configuration PayPal enregistree avec succes",
+      "saveError": "Echec de l'enregistrement de la configuration PayPal"
+    },
+    "atlassian": {
+      "cardTitle": "Atlassian",
+      "fields": {
+        "clientId": "ID Client",
+        "clientSecret": "Secret Client"
+      },
+      "placeholders": {
+        "clientId": "Votre Atlassian Client ID",
+        "clientSecret": "Entrez le nouveau secret client"
+      },
+      "saveSuccess": "Configuration Atlassian enregistree avec succes",
+      "saveError": "Echec de l'enregistrement de la configuration Atlassian"
+    },
     "messages": {
       "loadError": "Echec du chargement de la configuration des integrations"
-    }
+    },
+    "statusConfigured": "Configuré",
+    "statusNotConfigured": "Non configuré",
+    "dialogSubtitle": "Saisissez les identifiants OAuth de cette intégration.",
+    "remove": "Supprimer",
+    "removing": "Suppression...",
+    "removeSuccess": "Configuration supprimée",
+    "removeError": "Échec de la suppression de la configuration",
+    "cancel": "Annuler"
   },
   "inboundEmail": {
-    "title": "Configuration E-mail Entrant",
-    "description": "Configurez le fournisseur de messagerie entrante et les identifiants utilises pour recevoir et traiter les e-mails entrants.",
+    "title": "E-mail entrant (recevoir comme conversations)",
+    "description": "Permet au CRM de recevoir des e-mails sous forme de conversations. Nécessite un service de réception externe (relay, Mailgun ou Mandrill) configuré pour votre domaine.",
     "provider": {
       "label": "Service d'E-mail Entrant",
       "relay": "Relay (Exim / Postfix / Qmail)",
@@ -425,10 +569,10 @@
     "saving": "Enregistrement..."
   },
   "frontendRuntime": {
-    "title": "Configuration Frontend Runtime",
-    "description": "Configurez les clés reCAPTCHA et Clarity chargées par le frontend au démarrage.",
+    "title": "Analytics et Sécurité",
+    "description": "Clés de services front-end tiers : Google reCAPTCHA (protection anti-bot) et Microsoft Clarity (analytique).",
     "fields": {
-      "cardTitle": "Clés Runtime",
+      "cardTitle": "reCAPTCHA et Clarity",
       "recaptchaSiteKey": "Clé du Site reCAPTCHA",
       "clarityProjectId": "ID du Projet Clarity"
     },

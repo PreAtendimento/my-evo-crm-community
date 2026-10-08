@@ -4,9 +4,30 @@
 class Api::V1::PipelineItemsController < Api::V1::BaseController
   include Events::Types
 
+  # Mutating actions authorize against the pipeline write policy; reads stay at
+  # view level.
+  # Card writes an AGENT may run — gated on the dedicated pipeline_items.update key
+  # (PipelinePolicy#update_items?). `destroy` is deliberately NOT here: deleting a
+  # card cascades to its stage_movements/tasks/products (a destructive
+  # restructuring), so it stays manager-level (pipelines.update). See
+  # ensure_authorized_user.
+  WRITE_ACTIONS = %w[
+    create update bulk_move move_conversation
+    move_to_stage update_conversation update_custom_fields
+  ].freeze
+
+  # Card writes authorize via Pundit (PipelinePolicy#update_items?), not the
+  # require_permissions/check_<action>_permission! named gate — the scope check
+  # (accessible_record?) has to run on the resolved pipeline. Register the key so
+  # the auth catalog-conformance guard still sees it (CRM-178 review LOW 9).
+  EvoPermissionConcern.register_permission_key('pipeline_items.update')
+
   before_action :set_pipeline
-  before_action :set_pipeline_item, only: [:update, :destroy, :move_to_stage, :update_conversation]
+  before_action :set_pipeline_item, only: [:update, :destroy, :move_to_stage, :update_conversation, :update_custom_fields]
   before_action :ensure_authorized_user
+  # Last in the chain: a caller without write permission must get 403, not a
+  # business-rule 422 telling it the pipeline is archived.
+  before_action :reject_archived_pipeline, only: [:create, :move_conversation]
 
   def index
     @pipeline_items = @pipeline.pipeline_items.includes(
@@ -48,11 +69,11 @@ class Api::V1::PipelineItemsController < Api::V1::BaseController
         return
       end
 
-      # Check if conversation is already in THIS specific pipeline
-      if @pipeline.pipeline_items.exists?(conversation: conversation)
+      # Check if conversation has an ACTIVE (not completed) item in this pipeline
+      if @pipeline.pipeline_items.where(conversation: conversation, completed_at: nil).exists?
         error_response(
           ApiErrorCodes::BUSINESS_RULE_VIOLATION,
-          'Item is already in this pipeline'
+          'Item already has an active journey in this pipeline'
         )
         return
       end
@@ -69,11 +90,11 @@ class Api::V1::PipelineItemsController < Api::V1::BaseController
         return
       end
 
-      # Check if contact is already in THIS specific pipeline
-      if @pipeline.pipeline_items.exists?(contact: contact)
+      # Check if contact has an ACTIVE (not completed) item in this pipeline
+      if @pipeline.pipeline_items.where(contact: contact, completed_at: nil).exists?
         error_response(
           ApiErrorCodes::BUSINESS_RULE_VIOLATION,
-          'Contact is already in this pipeline'
+          'Contact already has an active journey in this pipeline'
         )
         return
       end
@@ -93,13 +114,13 @@ class Api::V1::PipelineItemsController < Api::V1::BaseController
     pipeline_stage = @pipeline.pipeline_stages.find(stage_id)
 
     if conversation.present?
-      # Check if conversation already exists in this pipeline
-      existing_pc = @pipeline.pipeline_items.find_by(conversation: conversation)
+      # Check if conversation already has an ACTIVE journey in this pipeline
+      existing_pc = @pipeline.pipeline_items.find_by(conversation: conversation, completed_at: nil)
 
       if existing_pc
         error_response(
           ApiErrorCodes::BUSINESS_RULE_VIOLATION,
-          "Item already exists in this pipeline in stage '#{existing_pc.pipeline_stage.name}'",
+          "Item already has an active journey in this pipeline in stage '#{existing_pc.pipeline_stage.name}'",
           details: {
             existing_stage: existing_pc.pipeline_stage.name,
             existing_stage_id: existing_pc.pipeline_stage_id
@@ -160,22 +181,77 @@ class Api::V1::PipelineItemsController < Api::V1::BaseController
   end
   # rubocop:enable Metrics/MethodLength, Metrics/AbcSize, Metrics/CyclomaticComplexity, Metrics/PerceivedComplexity
 
+  # rubocop:disable Metrics/MethodLength, Metrics/AbcSize, Metrics/CyclomaticComplexity, Metrics/PerceivedComplexity
   def update
-    @pipeline_item.update!(pipeline_item_params)
-    
+    new_stage_id = params[:pipeline_stage_id]
+    stage_changed = false
+    wrote_anything = false
+
+    if new_stage_id.present? && new_stage_id.to_s != @pipeline_item.pipeline_stage_id.to_s
+      new_stage = @pipeline.pipeline_stages.find(new_stage_id)
+
+      unless @pipeline_item.move_to_stage(new_stage, Current.user)
+        return error_response(
+          ApiErrorCodes::OPERATION_FAILED,
+          'Failed to move item to new stage',
+          status: :unprocessable_entity
+        )
+      end
+
+      stage_changed = true
+      wrote_anything = true
+    end
+
+    if params[:custom_fields].present?
+      @pipeline_item.update!(custom_fields: params[:custom_fields])
+      wrote_anything = true
+    end
+
+    # Notes persist regardless of stage change: attach to the latest movement,
+    # creating one if the item has none yet (mirrors #update_conversation).
+    if params[:notes].present?
+      persist_notes(params[:notes])
+      wrote_anything = true
+    end
+
+    # Nothing changed → don't lie with "updated successfully". Signal an explicit
+    # no-op so journey/automation callers can tell a real write from an inert call.
+    unless wrote_anything
+      return error_response(
+        ApiErrorCodes::BUSINESS_RULE_VIOLATION,
+        'No changes provided; nothing was updated',
+        status: :unprocessable_entity
+      )
+    end
+
+    dispatch_conversation_updated_event(@pipeline_item.conversation) if stage_changed
+
     success_response(
-      data: PipelineItemSerializer.serialize(@pipeline_item, include_entity: true),
+      data: PipelineItemSerializer.serialize(@pipeline_item.reload, include_entity: true),
       message: 'Pipeline item updated successfully'
+    )
+  rescue ActiveRecord::RecordNotFound
+    error_response(
+      ApiErrorCodes::RESOURCE_NOT_FOUND,
+      'Stage not found in this pipeline',
+      status: :not_found
     )
   rescue ActiveRecord::RecordInvalid => e
     error_response(
       ApiErrorCodes::VALIDATION_ERROR,
-      e.message
+      e.message,
+      details: format_validation_errors(e.record.errors),
+      status: :unprocessable_entity
     )
   end
+  # rubocop:enable Metrics/MethodLength, Metrics/AbcSize, Metrics/CyclomaticComplexity, Metrics/PerceivedComplexity
 
   # rubocop:disable Metrics/MethodLength, Metrics/AbcSize, Metrics/CyclomaticComplexity, Metrics/PerceivedComplexity
-  def update_notesconversation
+  # Routed as PATCH .../pipeline_items/:id/update_conversation (was defined as the
+  # typo `update_notesconversation`, which no route reached — CRM-178 review LOW 10).
+  # It IS a card write, so it must keep the name the route/WRITE_ACTIONS/
+  # set_pipeline_item all reference, or it silently falls to :view? read-level.
+  def update_conversation
     # Handle stage change
     if params[:stage_id].present?
       new_stage = @pipeline.pipeline_stages.find(params[:stage_id])
@@ -361,6 +437,38 @@ class Api::V1::PipelineItemsController < Api::V1::BaseController
   end
   # rubocop:enable Metrics/MethodLength
 
+  # Moves a conversation to a target stage by resolving its current pipeline
+  # placement server-side: same-pipeline -> move_to_stage; different pipeline ->
+  # cross-pipeline relocate (leaves the previous pipeline); none -> assign.
+  # Consumed by the evo-flow Journey "Move to Pipeline Stage" node so its output
+  # matches the Automation Rules pipeline action (10.B parity). A deleted target
+  # stage degrades to a logged skip rather than an error.
+  def move_conversation
+    stage = @pipeline.pipeline_stages.find_by(id: params[:pipeline_stage_id])
+    return skip_missing_target_stage if stage.nil?
+
+    conversation = Conversation.find_by(id: params[:conversation_id]) ||
+                   Conversation.find_by(display_id: params[:conversation_id])
+    return error_response(ApiErrorCodes::CONVERSATION_NOT_FOUND, 'Conversation not found') if conversation.nil?
+
+    movement_type, success = relocate_conversation(conversation, stage)
+
+    unless success
+      return error_response(
+        ApiErrorCodes::OPERATION_FAILED,
+        'Failed to move conversation',
+        status: :unprocessable_entity
+      )
+    end
+
+    dispatch_conversation_updated_event(conversation)
+
+    success_response(
+      data: { moved: true, movement_type: movement_type, pipeline_id: @pipeline.id, stage_id: stage.id },
+      message: 'Conversation moved successfully'
+    )
+  end
+
   def stats
     @stats = {
       total_conversations: @pipeline_items.count,
@@ -381,7 +489,7 @@ class Api::V1::PipelineItemsController < Api::V1::BaseController
                                              .where.not(conversation_id: nil)
                                              .pluck(:conversation_id)
 
-    current_conversations = Conversation.all
+    current_conversations = Conversations::PermissionFilterService.new(Conversation.all, current_user).perform
                       .joins(:contact, :inbox)
                       .where.not(conversations: { id: conversation_ids_in_pipeline })
                       .where.not(status: 'resolved')
@@ -409,7 +517,8 @@ class Api::V1::PipelineItemsController < Api::V1::BaseController
     # Get contacts that are NOT already in THIS specific pipeline
     contacts_in_current_pipeline = @pipeline.pipeline_items.where.not(contact_id: nil).select(:contact_id)
 
-    current_contacts = Contact.all
+    current_contacts = Contact.non_groups
+                       .includes(avatar_attachment: :blob)
                        .where.not(contacts: { id: contacts_in_current_pipeline })
                        .order(name: :desc)
                        .limit(50)
@@ -434,6 +543,63 @@ class Api::V1::PipelineItemsController < Api::V1::BaseController
 
   private
 
+  def skip_missing_target_stage
+    Rails.logger.warn(
+      "PipelineItems#move_conversation: stage #{params[:pipeline_stage_id].inspect} " \
+      "not found in pipeline #{@pipeline.id}; skipping"
+    )
+    success_response(
+      data: { moved: false, skipped: true, reason: 'stage_not_found' },
+      message: 'Target stage not found; move skipped'
+    )
+  end
+
+  def relocate_conversation(conversation, stage)
+    service = Pipelines::ConversationService.new(pipeline: @pipeline, user: Current.user)
+    current_item = conversation.pipeline_items.active.find_by(pipeline_id: @pipeline.id) ||
+                   conversation.pipeline_items.active.first
+
+    if current_item.nil?
+      ['assigned', service.add_conversation(conversation, stage: stage)]
+    elsif current_item.pipeline_id == @pipeline.id
+      ['same_pipeline', service.move_to_stage(current_item, stage)]
+    else
+      authorize_source_pipeline!(current_item.pipeline)
+      ['cross_pipeline', service.move_to_pipeline_stage(current_item, stage)]
+    end
+  end
+
+  # A cross-pipeline relocate REMOVES the card from its previous pipeline, and
+  # ensure_authorized_user only checked the TARGET (the one in the URL). Card writes
+  # are agent-level since CRM-178, so without this the agent could pull a card out of
+  # a funnel it cannot even see by naming a funnel it can. Same predicate as the
+  # target, so accessible_record? runs on the source too. Service tokens (evo-flow
+  # journeys) are exempt, like ensure_authorized_user.
+  def authorize_source_pipeline!(source_pipeline)
+    return if service_authenticated?
+
+    authorize source_pipeline, :update_items?
+  end
+
+  # Attaches notes to the most recent stage_movement so a journey/manual note
+  # persists even when the stage didn't change. If the item somehow has no
+  # movement yet, create a manual one carrying the note (mirrors the
+  # #update_conversation fallback) so the note is never silently dropped.
+  def persist_notes(notes)
+    latest_movement = @pipeline_item.stage_movements.order(:created_at).last
+
+    if latest_movement
+      latest_movement.update!(notes: notes)
+    else
+      @pipeline_item.stage_movements.create!(
+        to_stage: @pipeline_item.pipeline_stage,
+        moved_by: Current.user,
+        movement_type: :manual,
+        notes: notes
+      )
+    end
+  end
+
   def dispatch_conversation_updated_event(conversation)
     # Update conversation timestamp to ensure frontend gets the update (only for deals, not leads)
       # Using touch to sync conversation timestamps with frontend
@@ -447,6 +613,19 @@ class Api::V1::PipelineItemsController < Api::V1::BaseController
   def set_pipeline
     @pipeline = Pipeline.find(params[:pipeline_id])
     authorize @pipeline, :view? unless service_authenticated?
+  end
+
+  # An archived pipeline is hidden from every picker, so an automation or journey that
+  # keeps adding or moving conversations into it acts on a board the operator turned off.
+  # Refused with a stable code so the caller (evo-flow) can surface it (EVO-2203).
+  def reject_archived_pipeline
+    return if @pipeline.is_active
+
+    error_response(
+      ApiErrorCodes::PIPELINE_ARCHIVED,
+      'Pipeline is archived and cannot receive conversations',
+      status: :unprocessable_entity
+    )
   end
 
   # rubocop:disable Metrics/AbcSize
@@ -557,8 +736,60 @@ class Api::V1::PipelineItemsController < Api::V1::BaseController
   end
 
   def apply_filters
+    # Status filter: active (default), completed, all
+    case params[:status]
+    when 'completed'
+      @pipeline_items = @pipeline_items.where.not(completed_at: nil)
+    when 'all'
+      # no filter
+    else
+      @pipeline_items = @pipeline_items.where(completed_at: nil)
+    end
+
+    # Temporal filters for completed/lost items
+    # completed_after: ISO8601 date — items completed after this date
+    # completed_before: ISO8601 date — items completed before this date
+    # completed_period: last_7d, last_30d, last_90d, last_year, this_month, this_year
+    if params[:completed_period].present?
+      range = temporal_range(params[:completed_period])
+      @pipeline_items = @pipeline_items.where(completed_at: range) if range
+    else
+      if params[:completed_after].present?
+        @pipeline_items = @pipeline_items.where('completed_at >= ?', Time.zone.parse(params[:completed_after]))
+      end
+      if params[:completed_before].present?
+        @pipeline_items = @pipeline_items.where('completed_at <= ?', Time.zone.parse(params[:completed_before]))
+      end
+    end
+
+    # Entered date filters
+    if params[:entered_after].present?
+      @pipeline_items = @pipeline_items.where('entered_at >= ?', Time.zone.parse(params[:entered_after]))
+    end
+    if params[:entered_before].present?
+      @pipeline_items = @pipeline_items.where('entered_at <= ?', Time.zone.parse(params[:entered_before]))
+    end
+
     @pipeline_items = filter_by_stage if params[:stage_id].present?
     @pipeline_items = search_conversations if params[:search].present?
+  end
+
+  def temporal_range(period)
+    now = Time.current
+    case period
+    when 'last_7d'
+      7.days.ago..now
+    when 'last_30d'
+      30.days.ago..now
+    when 'last_90d'
+      90.days.ago..now
+    when 'last_year'
+      1.year.ago..now
+    when 'this_month'
+      now.beginning_of_month..now
+    when 'this_year'
+      now.beginning_of_year..now
+    end
   end
 
   def apply_sorting
@@ -582,7 +813,24 @@ class Api::V1::PipelineItemsController < Api::V1::BaseController
   def ensure_authorized_user
     return if service_authenticated?
 
-    authorize @pipeline, :view?
+    # Three levels, all preserving accessible_record? inside the predicate:
+    #   - destroy  -> :update? (pipelines.update, MANAGER): deleting a card cascades
+    #     to its stage_movements/tasks/products — a destructive restructuring, not
+    #     attendance (mirrors CRM-182 keeping deletes off the agent).
+    #   - other card writes (create/move/edit) -> :update_items? (pipeline_items.update,
+    #     AGENT): the salesperson moves/creates cards without the manager's power to
+    #     reshape/archive the funnel.
+    #   - reads -> :view? (pipelines.read).
+    predicate =
+      if action_name == 'destroy'
+        :update?
+      elsif WRITE_ACTIONS.include?(action_name)
+        :update_items?
+      else
+        :view?
+      end
+
+    authorize @pipeline, predicate
   end
 end
 # rubocop:enable Metrics/ClassLength

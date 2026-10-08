@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
+import { useUnansweredConversationsStore } from '@/store/unansweredConversationsStore';
 import { Link } from 'react-router-dom';
 import {
   Menu,
@@ -27,6 +28,7 @@ import MenuItem from './MenuItem';
 import { MenuItem as MenuItemType } from '../config/menuItems';
 import { ThemeToggle } from '../../ThemeToggle';
 import { AppLogo } from '../../AppLogo';
+import { PluginSlot } from '@/plugin-host';
 
 // Utility function for className merging
 function cn(...classes: (string | undefined | null | false)[]) {
@@ -72,6 +74,17 @@ export default function Header({
 }: HeaderProps) {
   const { t } = useLanguage('layout');
   const [expandedMobileMenus, setExpandedMobileMenus] = useState<Set<string>>(new Set());
+  const totalUnanswered = useUnansweredConversationsStore((state) => state.totalUnanswered);
+
+  const enrichedMenuItems = useMemo(
+    () =>
+      menuItems.map((item) =>
+        item.href === '/conversations' && totalUnanswered > 0
+          ? { ...item, badge: totalUnanswered, badgeHref: '/conversations?segment=unanswered' }
+          : item,
+      ),
+    [menuItems, totalUnanswered],
+  );
 
   return (
     <div className="flex-shrink-0 bg-sidebar border-b border-sidebar-border px-0 py-3 flex items-center shadow-sm">
@@ -97,7 +110,7 @@ export default function Header({
 
               <ScrollArea className="flex-1 min-h-0 overflow-hidden p-4">
                 <nav className="space-y-1">
-                  {menuItems.map(item => {
+                  {enrichedMenuItems.map(item => {
                     const hasSubItems = item.subItems && item.subItems.length > 0;
                     const menuKey = item.id || item.href;
                     const isExpanded = expandedMobileMenus.has(menuKey);
@@ -176,6 +189,7 @@ export default function Header({
                       </div>
                     );
                   })}
+                  <PluginSlot id="sidebar.afterMain" />
                 </nav>
               </ScrollArea>
 
@@ -203,6 +217,7 @@ export default function Header({
 
         {/* Right: Notifications and User Menu */}
         <div className="flex-1 flex justify-end items-center gap-2">
+          <PluginSlot id="header.right" />
           <TourFab />
           <NotificationBell />
           <ProfileMenu
@@ -257,6 +272,8 @@ export default function Header({
 
         {/* Right side */}
         <div className="flex items-center gap-2 px-4">
+          <PluginSlot id="header.left" />
+          <PluginSlot id="header.right" />
           <TourFab />
           {/* Theme Toggle */}
           <ThemeToggle />

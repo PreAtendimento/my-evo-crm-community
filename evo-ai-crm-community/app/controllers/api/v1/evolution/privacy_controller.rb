@@ -1,4 +1,11 @@
 class Api::V1::Evolution::PrivacyController < Api::V1::BaseController
+  include EvolutionConcern
+
+  require_permissions({
+    show: 'inboxes.read',
+    update: 'inboxes.update'
+  })
+
   before_action :set_channel, only: [:show, :update]
 
   # GET /api/v1/evolution/privacy/:id
@@ -45,8 +52,11 @@ class Api::V1::Evolution::PrivacyController < Api::V1::BaseController
 
     if channel
       @instance_name = instance_name
-      @api_url = channel.provider_config['api_url']
-      @api_hash = channel.provider_config['admin_token']
+      begin
+        @api_url, @api_hash = evolution_credentials_for!(channel)
+      rescue StandardError => e
+        render json: { error: e.message }, status: :unprocessable_entity
+      end
     else
       render json: { error: "Channel not found for instance: #{instance_name}" }, status: :not_found
     end

@@ -1,6 +1,15 @@
 class Api::V1::EvolutionGo::AuthorizationsController < Api::V1::BaseController
   include EvolutionGoConcern
 
+  require_permissions({
+    create: 'inboxes.create',
+    connect: 'inboxes.update',
+    qrcode: 'inboxes.read',
+    fetch: 'inboxes.read',
+    logout: 'inboxes.update',
+    delete_instance: 'inboxes.delete'
+  })
+
   before_action :set_instance_params, only: [:create, :connect, :qrcode, :fetch, :logout, :delete_instance]
 
   # CREATE INSTANCE - POST /instance/create
@@ -43,6 +52,8 @@ class Api::V1::EvolutionGo::AuthorizationsController < Api::V1::BaseController
 
       # Create new instance
       instance_data = create_instance_go(@api_url, @admin_token, @instance_name, auth_params)
+
+      register_webhook_after_create(@api_url, instance_data['instance_token'])
 
       render json: {
         success: true,
@@ -194,8 +205,26 @@ class Api::V1::EvolutionGo::AuthorizationsController < Api::V1::BaseController
   def delete_instance
     Rails.logger.info "Evolution Go API: Deleting instance #{@instance_uuid}"
 
+    if @api_url.blank? || @instance_uuid.blank?
+      return render json: {
+        error: 'Missing required parameters: api_url and instanceId'
+      }, status: :bad_request
+    end
+
+    # Evolution Go DELETE /instance/delete/:id is an AuthAdmin route — it requires
+    # the global API key (admin_token), NOT the per-instance token. During rollback
+    # the channel was never persisted so instance_token is unavailable; fall back to
+    # admin_token which is always resolvable via GlobalConfig.
+    auth_token = @instance_token.presence || @admin_token
+
+    if auth_token.blank?
+      return render json: {
+        error: 'Missing credentials: instance_token or admin_token required to delete instance'
+      }, status: :bad_request
+    end
+
     begin
-      delete_instance_go(@api_url, @instance_token, @instance_uuid)
+      delete_instance_go(@api_url, auth_token, @instance_uuid)
 
       render json: {
         success: true,
@@ -482,6 +511,23 @@ class Api::V1::EvolutionGo::AuthorizationsController < Api::V1::BaseController
   def generate_instance_token
     # Gerar token no formato UUID padrão
     SecureRandom.uuid
+  end
+
+  # Registers the CRM webhook on the freshly created Evolution Go instance so
+  # incoming events arrive even before the user opens the QR screen. Failures
+  # (e.g. missing BACKEND_URL, transient network error) are logged and swallowed
+  # to avoid regressing channel creation — connect_instance is also called when
+  # the QR is requested, so the webhook will be retried then.
+  def register_webhook_after_create(api_url, instance_token)
+    return if api_url.blank? || instance_token.blank?
+
+    # Timeouts curtos: o create já é síncrono e o caminho de QR retenta o
+    # connect_instance, então não vale segurar o usuário por 30s aqui.
+    connect_instance(api_url, instance_token, nil, open_timeout: 5, read_timeout: 5)
+  rescue StandardError => e
+    # warn (não error) — o caminho de QR retenta o connect_instance, então uma
+    # falha aqui não é um problema de produção que deva paginar.
+    Rails.logger.warn "Evolution Go API: Eager webhook registration failed (will retry on QR open): #{e.class} - #{e.message}"
   end
 
   def get_setting_value(settings, symbol_key, string_key, default_value)

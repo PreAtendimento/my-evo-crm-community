@@ -1,10 +1,12 @@
 import React, { createContext, useContext, useEffect, ReactNode } from 'react';
 import { UserResponse } from '@/types/auth';
 import { useAuthStore } from '@/store/authStore';
+import { normalizeAvatarUrl } from '@/utils/avatarUrl';
 import { useAppDataStore } from '@/store/appDataStore';
 import { getReconnectService } from '@/services/core';
 import { verifyMfa, logout as authServiceLogout } from '@/services/auth/authService';
 import { profileService } from '@/services/profile/profileService';
+import { permissionsService } from '@/services/permissions';
 import { markBootstrapPhaseEnd, markBootstrapPhaseStart } from '@/utils/requestMonitor';
 
 interface MfaState {
@@ -120,6 +122,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
     clearUser();
     useAppDataStore.getState().clearAppData();
+    // EVO-1938: drop the cached permission set on logout. Without this the
+    // permissionsService keeps the previous user's permissions for its 30-min TTL,
+    // so the next user to log in on the same browser sees a menu built from the
+    // prior (possibly admin) permissions until the cache expires.
+    permissionsService.clearCache();
     setMfaState(null);
   };
 
@@ -168,6 +175,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         const updatedUser: UserResponse = {
           ...currentUserData,
           ...profileData.user,
+          avatar_url: normalizeAvatarUrl(profileData.user.avatar_url) || currentUserData.avatar_url,
         };
 
         setUser(updatedUser);

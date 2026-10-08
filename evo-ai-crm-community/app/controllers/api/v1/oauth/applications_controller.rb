@@ -4,14 +4,25 @@ class Api::V1::Oauth::ApplicationsController < Api::V1::BaseController
     show: 'oauth_applications.read',
     create: 'oauth_applications.create',
     update: 'oauth_applications.update',
-    destroy: 'oauth_applications.delete'
+    destroy: 'oauth_applications.delete',
+    regenerate_secret: 'oauth_applications.regenerate_secret'
   })
   
   before_action :set_application, only: [:show, :update, :destroy, :regenerate_secret]
 
   def index
-    @applications = OauthApplication.all.order(:created_at)
-    render json: @applications.map { |app| application_serializer(app) }
+    apps = OauthApplication.all.order(:created_at).map { |app| application_serializer(app) }
+    success_response(
+      data: apps,
+      meta: {
+        pagination: {
+          page: 1,
+          page_size: apps.length,
+          total: apps.length,
+          total_pages: 1
+        }
+      }
+    )
   end
 
   def show

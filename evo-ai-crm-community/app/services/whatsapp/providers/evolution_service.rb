@@ -7,12 +7,35 @@ class Whatsapp::Providers::EvolutionService < Whatsapp::Providers::BaseService
 
     if message.attachments.present?
       send_attachment_message(phone_number, message)
+    elsif message.content_type == 'input_select'
+      send_interactive_message(phone_number, message)
     elsif message.content.present?
       send_text_message(phone_number, message)
     else
       @message.update!(is_unsupported: true)
       return
     end
+  end
+
+  # Propagates an agent's message deletion to WhatsApp (delete-for-everyone).
+  # Returns true when the provider acknowledged the revoke.
+  def delete_message(message)
+    return false if api_base_path.blank? || instance_name.blank?
+    return false if message.source_id.blank?
+
+    remote_jid = remote_jid_for(message)
+    return false if remote_jid.blank?
+
+    response = HTTParty.delete(
+      "#{api_base_path}/chat/deleteMessageForEveryone/#{instance_name}",
+      headers: api_headers,
+      body: { id: message.source_id, remoteJid: remote_jid, fromMe: message.outgoing? }.to_json,
+      timeout: 10
+    )
+    return true if response.success?
+
+    Rails.logger.warn("Evolution API: deleteMessageForEveryone failed (#{response.code}) for source_id=#{message.source_id}")
+    false
   end
 
   def send_template(phone_number, template_info)
@@ -145,6 +168,30 @@ class Whatsapp::Providers::EvolutionService < Whatsapp::Providers::BaseService
     "#{api_base_path}/media/#{media_id}"
   end
 
+  # Fetches the group subject (real name) for a group JID via Evolution API REST.
+  # Cached in Redis for 1h per (channel, group_jid) so we don't hammer the API on
+  # every webhook. Returns nil on any failure — caller handles the fallback.
+  def fetch_group_subject(group_jid)
+    return nil if group_jid.blank?
+    return nil if api_base_path.blank? || instance_name.blank?
+
+    cache_key = "evolution:group_subject:#{whatsapp_channel.id}:#{group_jid}"
+    cached = Redis::Alfred.get(cache_key)
+    return cached if cached.present?
+
+    url = "#{api_base_path}/group/findGroupInfos/#{instance_name}?groupJid=#{URI.encode_www_form_component(group_jid)}"
+    response = HTTParty.get(url, headers: api_headers, timeout: 5)
+    return nil unless response.success?
+
+    parsed = response.parsed_response
+    subject = parsed.is_a?(Hash) ? (parsed['subject'].presence || parsed.dig('groupMetadata', 'subject').presence) : nil
+    Redis::Alfred.setex(cache_key, subject, 1.hour) if subject.present?
+    subject
+  rescue StandardError => e
+    Rails.logger.warn "Evolution API: fetch_group_subject failed for #{group_jid}: #{e.message}"
+    nil
+  end
+
   def subscribe_to_webhooks
     # Evolution API webhook subscription if needed
     Rails.logger.info 'Evolution API webhook subscription not implemented'
@@ -168,6 +215,47 @@ class Whatsapp::Providers::EvolutionService < Whatsapp::Providers::BaseService
 
     Rails.logger.info "Evolution API: Logout failed, attempting to delete instance #{instance_name}"
     try_delete_instance(instance_name)
+  end
+
+  # Fetch a contact's WhatsApp profile picture URL via Evolution API.
+  # Returns the URL string when present, or nil on any failure / missing picture.
+  # The endpoint is best-effort — Evolution responses vary across versions, so we
+  # accept several common shapes for the picture URL field.
+  def fetch_profile_picture_url(phone_number)
+    number = phone_number.to_s.delete('+')
+    return nil if number.blank? || api_base_path.blank? || instance_name.blank?
+
+    response = HTTParty.post(
+      "#{api_base_path}/chat/fetchProfilePictureUrl/#{instance_name}",
+      headers: api_headers,
+      body: { number: number }.to_json,
+      open_timeout: 5,
+      read_timeout: 10
+    )
+
+    unless response.success?
+      Rails.logger.warn "Evolution API: fetchProfilePictureUrl HTTP #{response.code}"
+      return nil
+    end
+
+    parsed = response.parsed_response
+    unless parsed.is_a?(Hash)
+      Rails.logger.warn "Evolution API: fetchProfilePictureUrl returned non-Hash body (#{parsed.class})"
+      return nil
+    end
+
+    if parsed['error'].present? || parsed['status'].to_s == 'error'
+      Rails.logger.warn "Evolution API: fetchProfilePictureUrl 200 OK with error body: #{parsed['error'] || parsed['message']}"
+      return nil
+    end
+
+    url = parsed['profilePictureUrl'].presence ||
+          parsed.dig('data', 'profilePictureUrl').presence ||
+          parsed['profilePicUrl'].presence
+    url.presence
+  rescue StandardError => e
+    Rails.logger.error "Evolution API: fetchProfilePictureUrl error: #{e.class} - #{e.message}"
+    nil
   end
 
   private
@@ -230,6 +318,100 @@ class Whatsapp::Providers::EvolutionService < Whatsapp::Providers::BaseService
     whatsapp_channel.provider_config['instance_name']
   end
 
+  def remote_jid_for(message)
+    source_id = message.conversation&.contact_inbox&.source_id.to_s
+    return nil if source_id.blank?
+    return source_id if source_id.include?('@')
+
+    "#{source_id.delete('+')}@s.whatsapp.net"
+  end
+
+  def send_interactive_message(phone_number, message)
+    clean_number = phone_number.delete('+')
+    items = filter_valid_items(message.content_attributes&.dig('items') || [])
+
+    if items.empty?
+      Rails.logger.warn "[Evolution] Interactive message has no valid items, falling back to text"
+      return send_text_message(phone_number, message)
+    end
+
+    if items.length <= 3
+      send_button_message(clean_number, message, items)
+    else
+      send_list_message(clean_number, message, items)
+    end
+  rescue StandardError => e
+    Rails.logger.error "[Evolution] Interactive message failed (#{e.message}), falling back to text"
+    send_text_message(phone_number, message)
+  end
+
+  def send_button_message(clean_number, message, items)
+    buttons = items.map do |item|
+      { type: 'reply', displayText: item['title'].to_s.truncate(20), id: item['value'].to_s }
+    end
+
+    content = interactive_body_text(message)
+
+    body = {
+      number: clean_number,
+      title: content.truncate(60),
+      description: content,
+      footer: 'Evo CRM',
+      buttons: buttons
+    }
+
+    Rails.logger.info "[Evolution] Sending button message to #{clean_number} with #{buttons.length} buttons"
+
+    response = HTTParty.post(
+      "#{api_base_path}/message/sendButtons/#{instance_name}",
+      headers: api_headers,
+      body: body.to_json
+    )
+
+    process_response(response)
+  end
+
+  def send_list_message(clean_number, message, items)
+    rows = items.first(10).map do |item|
+      { rowId: item['value'].to_s, title: item['title'].to_s.truncate(24), description: '' }
+    end
+
+    if items.length > 10
+      Rails.logger.warn "[Evolution] List truncated from #{items.length} to 10 rows (WhatsApp limit)"
+    end
+
+    content = interactive_body_text(message)
+
+    body = {
+      number: clean_number,
+      title: content.truncate(60),
+      description: content,
+      buttonText: I18n.t('whatsapp.interactive.list_button', default: 'Menu'),
+      footerText: 'Evo CRM',
+      sections: [{ title: I18n.t('whatsapp.interactive.list_section', default: 'Options'), rows: rows }]
+    }
+
+    Rails.logger.info "[Evolution] Sending list message to #{clean_number} with #{rows.length} rows"
+
+    response = HTTParty.post(
+      "#{api_base_path}/message/sendList/#{instance_name}",
+      headers: api_headers,
+      body: body.to_json
+    )
+
+    process_response(response)
+  end
+
+  def filter_valid_items(items)
+    return [] unless items.is_a?(Array)
+
+    valid, rejected = items.partition { |item| item['title'].present? && item['value'].present? }
+    if rejected.any?
+      Rails.logger.warn "[Evolution] Filtered #{rejected.length} items missing title or value"
+    end
+    valid
+  end
+
   def send_text_message(phone_number, message)
     raw_content = message.respond_to?(:content) ? message.content : message.to_s
 
@@ -247,7 +429,11 @@ class Whatsapp::Providers::EvolutionService < Whatsapp::Providers::BaseService
 
   def send_attachment_message(phone_number, message)
     attachment = message.attachments.first
-    return unless attachment
+
+    unless attachment
+      Rails.logger.error "[Evolution] No attachment found for message #{message.id}"
+      return false
+    end
 
     case attachment.file_type
     when 'image'
@@ -267,17 +453,16 @@ class Whatsapp::Providers::EvolutionService < Whatsapp::Providers::BaseService
   def send_media_message(phone_number, message, endpoint)
     attachment = message.attachments.first
 
-    # Use direct S3 URL for media
-    media_url = generate_direct_s3_url(attachment)
+    media_url = generate_media_url(attachment)
 
-    Rails.logger.info "[Evolution Media] Sending #{attachment.file_type} with direct URL: #{media_url}"
+    Rails.logger.info "[Evolution Media] Sending #{attachment.file_type} with URL: #{media_url}"
 
     response = HTTParty.post(
       "#{api_base_path}/message/#{endpoint}/#{instance_name}",
       headers: api_headers,
       body: {
         number: phone_number.delete('+'),
-        mediatype: attachment.file_type,
+        mediatype: map_file_type_to_evolution_media_type(attachment.file_type),
         media: media_url,
         caption: html_to_whatsapp(message.content.to_s),
         fileName: attachment.file.filename.to_s
@@ -285,6 +470,19 @@ class Whatsapp::Providers::EvolutionService < Whatsapp::Providers::BaseService
     )
 
     process_response(response)
+  end
+
+  # Evolution API/Baileys only accepts document/image/video/audio as mediatype.
+  # The 'file' enum value (PDF/Word/etc.) must be sent as 'document', mirroring
+  # EvolutionGoService#map_file_type_to_evolution_go and NotificameService.
+  def map_file_type_to_evolution_media_type(file_type)
+    case file_type
+    when 'image' then 'image'
+    when 'audio' then 'audio'
+    when 'video' then 'video'
+    when 'file' then 'document'
+    else 'document'
+    end
   end
 
   def send_audio_message(phone_number, message)
@@ -303,11 +501,9 @@ class Whatsapp::Providers::EvolutionService < Whatsapp::Providers::BaseService
   end
 
   def send_audio_with_direct_url(phone_number, attachment)
-    # Generate direct public URL for S3 bucket
-    audio_url = generate_direct_s3_url(attachment)
+    audio_url = generate_media_url(attachment)
 
-    # Debug log
-    Rails.logger.info "[Evolution Audio] Trying direct URL: #{audio_url}"
+    Rails.logger.info "[Evolution Audio] Trying URL: #{audio_url}"
 
     body_data = {
       number: phone_number.delete('+'),
@@ -329,28 +525,17 @@ class Whatsapp::Providers::EvolutionService < Whatsapp::Providers::BaseService
     process_response(response)
   end
 
-  def generate_direct_s3_url(attachment)
+  def generate_media_url(attachment)
     return attachment.file_url unless attachment.file.attached?
 
-    # Extract S3 details from existing signed URL
-    signed_url = attachment.download_url
+    # App-proxied by default (EVO-2006): a presigned S3/MinIO URL carries the
+    # STORAGE_ENDPOINT host inside the SigV4 signature, so an internal endpoint
+    # is unreachable by the Evolution API container and cannot be rewritten.
+    # See BlobUrlOptions.outbound_media_url for the delivery-mode/TTL rules.
+    media_url = BlobUrlOptions.outbound_media_url(attachment.file.blob)
 
-    Rails.logger.info "[Evolution S3] Original signed URL: #{signed_url}"
-
-    # Try to extract bucket and key from the signed URL (flexible regex for different S3 providers)
-    if signed_url =~ %r{https://([^/]+)/([^?]+)}
-      host = Regexp.last_match(1)
-      key = Regexp.last_match(2)
-
-      # Create direct public URL - just remove query parameters
-      direct_url = "https://#{host}/#{key}"
-      Rails.logger.info "[Evolution S3] Generated direct URL: #{direct_url}"
-      return direct_url
-    end
-
-    # Fallback to original URL if can't parse
-    Rails.logger.warn "[Evolution S3] Could not parse S3 URL, using original: #{signed_url}"
-    signed_url
+    Rails.logger.info "[Evolution Media] Outbound media URL with 15-minute TTL (host: #{BlobUrlOptions.effective_url_options[:host]})"
+    media_url
   end
 
   def send_audio_with_base64(phone_number, attachment)

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -31,10 +31,36 @@ interface UserFormModalProps {
 export default function UserFormModal({ isOpen, onClose, user, onSuccess }: UserFormModalProps) {
   const { t } = useLanguage('users');
 
-  // Buscar system roles
-  const { roles: systemRoles } = useRoles({
-    loadFull: true,
-  });
+  // Buscar system roles (todos os tipos) + roles customizadas type:'account'.
+  // Atendentes podem receber tanto as roles base (agent/account_owner) quanto
+  // roles customizadas type:'account' (ex.: "Converse"). O backend passou a
+  // retornar essas roles account em account_user_roles (RBAC split).
+  const { roles: systemRoles, error: rolesError } = useRoles();
+  const { roles: accountRoles } = useRoles({ type: 'account' });
+
+  // Deduplicar roles por chave para evitar que apareçam duplicados ou que a seleção marque múltiplos
+  const uniqueRoles = useMemo(() => {
+    // Definimos os papéis básicos que devem estar sempre disponíveis
+    const baseRoles = [
+      { id: 'role-agent', key: 'agent', name: 'Agent', type: 'user' },
+      { id: 'role-account-owner', key: 'account_owner', name: 'Account Owner', type: 'user' },
+    ];
+
+    // Roles atribuíveis a atendentes: type 'user' (compat legado), 'account'
+    // (atendentes customizados) ou sem type definido.
+    const assignableRoleTypes = ['user', 'account', null, undefined];
+    const filteredSystemRoles = [...systemRoles, ...accountRoles].filter(
+      role => !!role.key && (assignableRoleTypes.includes(role.type as any) || !role.type)
+    );
+
+    // Combinamos e removemos duplicatas por key (dando preferência ao que vem
+    // do sistema/account se existir).
+    return Array.from(
+      new Map(
+        [...baseRoles, ...filteredSystemRoles].map(role => [role.key, role])
+      ).values()
+    );
+  }, [systemRoles, accountRoles]);
 
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState<UserFormData>({
@@ -89,6 +115,10 @@ export default function UserFormModal({ isOpen, onClose, user, onSuccess }: User
 
     if (!formData.name.trim()) {
       newErrors.name = t('form.validation.nameRequired');
+    }
+
+    if (!formData.role) {
+      newErrors.role = t('form.validation.roleRequired');
     }
 
     if (!formData.email.trim()) {
@@ -156,8 +186,25 @@ export default function UserFormModal({ isOpen, onClose, user, onSuccess }: User
 
       onSuccess();
       onClose();
-    } catch (error) {
+    } catch (error: any) {
       console.error('Erro ao salvar usuário:', error);
+
+      // Parse structured validation errors from the API (EVO-1063)
+      const details = error?.response?.data?.error?.details;
+      if (Array.isArray(details)) {
+        const fieldErrors: Record<string, string> = {};
+        details.forEach((d: { field: string; full_messages?: string[] }) => {
+          if (d.field && d.full_messages?.length) {
+            fieldErrors[d.field] = d.full_messages.join('. ');
+          }
+        });
+
+        if (Object.keys(fieldErrors).length > 0) {
+          setErrors(prev => ({ ...prev, ...fieldErrors }));
+          return;
+        }
+      }
+
       toast.error(t('form.messages.saveError'));
     } finally {
       setLoading(false);
@@ -218,16 +265,22 @@ export default function UserFormModal({ isOpen, onClose, user, onSuccess }: User
               disabled={loading}
             >
               <SelectTrigger className="bg-sidebar border-sidebar-border text-sidebar-foreground">
-                <SelectValue />
+                <SelectValue placeholder={t('form.fields.role.placeholder')} />
               </SelectTrigger>
               <SelectContent>
-                {systemRoles.map(role => (
-                  <SelectItem key={role.key} value={role.key}>
+                {uniqueRoles.length === 0 && (
+                  <div className="px-2 py-4 text-sm text-center text-sidebar-foreground/60">
+                    {rolesError ? rolesError : t('form.messages.loading')}
+                  </div>
+                )}
+                {uniqueRoles.map(role => (
+                  <SelectItem key={role.id} value={role.key}>
                     {role.name}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
+            {errors.role && <p className="text-sm text-red-500">{errors.role}</p>}
           </div>
 
           <div className="space-y-2">

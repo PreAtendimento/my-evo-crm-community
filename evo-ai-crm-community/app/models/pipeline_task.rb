@@ -22,7 +22,6 @@
 #
 # Indexes
 #
-#  index_pipeline_tasks_on_assigned_to_id                          (assigned_to_id)
 #  index_pipeline_tasks_on_assigned_to_id_and_status_and_due_date  (assigned_to_id,status,due_date)
 #  index_pipeline_tasks_on_created_by_id                           (created_by_id)
 #  index_pipeline_tasks_on_due_date                                (due_date)
@@ -35,8 +34,6 @@
 #
 # Foreign Keys
 #
-#  fk_rails_...  (assigned_to_id => users.id)
-#  fk_rails_...  (created_by_id => users.id)
 #  fk_rails_...  (parent_task_id => pipeline_tasks.id)
 #  fk_rails_...  (pipeline_item_id => pipeline_items.id)
 #
@@ -59,28 +56,28 @@ class PipelineTask < ApplicationRecord
   has_one :contact, through: :pipeline_item
 
   # Enums
-  enum task_type: {
+  enum :task_type, {
     call: 0,
     email: 1,
     meeting: 2,
     follow_up: 3,
     note: 4,
     other: 5
-  }, _prefix: true
+  }, prefix: true
 
-  enum status: {
+  enum :status, {
     pending: 0,
     completed: 1,
     cancelled: 2,
     overdue: 3
-  }, _prefix: true
+  }, prefix: true
 
-  enum priority: {
+  enum :priority, {
     low: 0,
     medium: 1,
     high: 2,
     urgent: 3
-  }, _prefix: true
+  }, prefix: true
 
   # Validations
   validates :title, presence: true, length: { maximum: 255 }

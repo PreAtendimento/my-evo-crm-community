@@ -31,6 +31,21 @@
 
 en:
   hello: 'Hello world'
+  template_bundles:
+    export:
+      success: 'Template exported successfully'
+      errors:
+        no_selection: 'Select at least one item to export'
+    import:
+      success: 'Template imported successfully'
+      errors:
+        invalid_bundle: 'The bundle is malformed or corrupted'
+        unsupported_schema: 'Bundle schema version is not supported'
+        file_too_large: 'Bundle exceeds the maximum allowed size (50MB)'
+        missing_file: 'No bundle file was provided'
+      warnings:
+        channel_requires_credentials: 'Channel imported without credentials. Re-connect it in Settings → Inboxes.'
+        agent_requires_api_key: 'Agent imported without API key. Re-configure it in Settings → AI Agents.'
   messages:
     reset_password_success: Woot! Request for password reset is successful. Check your mail for instructions.
     reset_password_failure: Uh ho! We could not find any user with the specified email.
@@ -57,6 +72,12 @@ en:
         failed: File is blank
       export:
         success: We will notify you once contacts export file is ready to view.
+    conversations:
+      import:
+        missing_file: File is required
+        too_large: 'CSV exceeds the maximum allowed rows (%{limit})'
+        too_large_bytes: 'File exceeds the maximum allowed size (%{limit} bytes)'
+        invalid_csv: 'CSV is malformed: %{error}'
       email:
         invalid: Invalid email
       phone_number:
@@ -178,6 +199,8 @@ en:
         removed: '%{user_name} removed %{labels}'
       muted: '%{user_name} has muted the conversation'
       unmuted: '%{user_name} has unmuted the conversation'
+      bot_handoff: 'The bot handed off the conversation to an agent'
+      human_handoff: 'The agent handed the conversation back to the bot'
       auto_resolution_message: 'Resolving the conversation as it has been inactive for a while. Please start a new conversation if you need further assistance.'
     templates:
       greeting_message_body: '%{account_name} typically replies in a few hours.'
@@ -313,6 +336,13 @@ en:
       other: '%{count} seconds'
   automation:
     system_name: 'Automation System'
+  widget:
+    pre_chat_form:
+      field_required: '%{field} is required'
+      message_required: 'Message is required'
+      invalid_format: 'Invalid format'
+      invalid_email: 'Invalid email'
+      invalid_phone: 'Invalid phone. Use international format (e.g. +12125551234)'
   crm:
     no_message: 'No messages in conversation'
     attachment: '[Attachment: %{type}]'

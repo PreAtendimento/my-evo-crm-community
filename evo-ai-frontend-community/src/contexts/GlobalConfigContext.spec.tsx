@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import React from 'react';
+import { setupService } from '@/services/setup/setupService';
 import {
   GlobalConfigProvider,
   useGlobalConfig,
@@ -99,6 +100,30 @@ describe('GlobalConfigContext', () => {
 
       expect(parsed).toHaveProperty('setupRequired');
       expect(parsed).toHaveProperty('setupLoading');
+    });
+  });
+
+  // EVO-1046: a transient /setup/status failure (network hiccup, auth-service
+  // restart) must NOT push a logged-in user to the bootstrap wizard. Fresh
+  // installs are already handled by the auth-service /setup/status reporting
+  // `inactive` when User.exists? is false (commit 2c7e6b8, EVO-971), so the
+  // fail-open path is no longer needed and was actively harmful (operators
+  // could re-run bootstrap by accident on a healthy install).
+  it('defaults setupRequired=false when /setup/status fails (no fail-open to wizard)', async () => {
+    vi.mocked(setupService.getStatus).mockRejectedValueOnce(new Error('ECONNREFUSED'));
+    mockApi.get.mockResolvedValueOnce({ data: {} });
+
+    render(
+      <GlobalConfigProvider>
+        <ConfigDisplay />
+      </GlobalConfigProvider>,
+    );
+
+    await waitFor(() => {
+      const configEl = screen.getByTestId('config');
+      const parsed = JSON.parse(configEl.textContent || '{}');
+      expect(parsed.setupRequired).toBe(false);
+      expect(parsed.setupLoading).toBe(false);
     });
   });
 });

@@ -94,12 +94,9 @@ class ContactInboxWithContactBuilder
   end
 
   def update_contact_avatar(contact)
-    if contact_attributes[:avatar_url]
-      ::Avatar::AvatarFromUrlJob.perform_later(contact, contact_attributes[:avatar_url])
-    elsif whatsapp_cloud_channel? && contact.phone_number.present?
-      # Use Evolution Go API for WhatsApp Cloud avatar fetching if configured in Admin settings
-      WhatsappCloud::FetchContactAvatarJob.perform_later(contact.id, contact.phone_number)
-    end
+    return unless contact_attributes[:avatar_url]
+
+    ::Avatar::AvatarFromUrlJob.perform_later(contact, contact_attributes[:avatar_url])
   end
 
   def create_contact
@@ -111,7 +108,8 @@ class ContactInboxWithContactBuilder
       additional_attributes: contact_attributes[:additional_attributes],
       custom_attributes: contact_attributes[:custom_attributes],
       location: contact_attributes[:location] || '', # Ensure location is never nil
-      country_code: contact_attributes[:country_code] || '' # Ensure country_code is never nil
+      country_code: contact_attributes[:country_code] || '', # Ensure country_code is never nil
+      type: contact_attributes[:type] || 'person'
     )
 
     # Contacts created via inbox/channel flows are usually followed by conversation creation.
@@ -177,6 +175,11 @@ class ContactInboxWithContactBuilder
   def find_contact_by_phone_number(phone_number)
     return if phone_number.blank?
 
-    Contact.find_by(phone_number: phone_number)
+    # Normalize the lookup key to the canonical stored form so a contact created
+    # via another path (e.g. leads API) is matched instead of duplicated.
+    normalized = Whatsapp::PhoneNumberNormalizer.to_e164(phone_number)
+    return if normalized.blank?
+
+    Contact.find_by(phone_number: normalized)
   end
 end

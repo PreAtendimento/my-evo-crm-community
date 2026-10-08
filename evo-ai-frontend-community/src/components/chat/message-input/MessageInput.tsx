@@ -2,7 +2,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 
 import { Button } from '@evoapi/design-system/button';
-import { Card, CardContent } from '@evoapi/design-system/card';
 import {
   Tooltip,
   TooltipContent,
@@ -14,11 +13,9 @@ import {
   Mic,
   Loader2,
   Smile,
-  FileText,
   X,
   Reply,
   PenLine,
-  MessageSquareText,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -31,14 +28,18 @@ import { useAuth } from '@/contexts/AuthContext';
 import FileUpload from './FileUpload';
 import FilePreview from './FilePreview';
 import EmojiPicker from './EmojiPicker';
-import ReplyModeToggle from '../ReplyModeToggle';
+import ComposerPlusMenu from './ComposerPlusMenu';
+import MacrosButton from './MacrosButton';
+import ScheduleMessageModal from './ScheduleMessageModal';
+import NoteComposer from './NoteComposer';
 import AudioRecorder from '../audio';
 
 import { AIAssistanceButton } from '../ai-assistance';
 import { CannedResponsesList } from '../canned-responses';
+import { buildCannedResponseMessage } from './buildCannedResponseMessage';
 import { RichTextEditor, RichTextEditorRef } from '../rich-text-editor';
 
-import { ReplyMode, Message } from '@/types/chat/api';
+import { Message } from '@/types/chat/api';
 import type { CannedResponse } from '@/types/knowledge';
 
 import { MessageTemplateModal } from '../message-template';
@@ -104,18 +105,14 @@ const MessageInput: React.FC<MessageInputProps> = ({
     return channelType === 'Channel::Whatsapp';
   }, [channelType]);
 
-  // Detectar se é Instagram (também precisa de conversão de áudio WebM para WAV)
-  const isInstagram = React.useMemo(() => {
-    return channelType === 'Channel::Instagram';
-  }, [channelType]);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [isSending, setIsSending] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<Record<string, number>>({});
   const [isTyping, setIsTyping] = useState(false);
-  const [replyMode, setReplyMode] = useState<ReplyMode>(ReplyMode.REPLY);
   const [isRecordingAudio, setIsRecordingAudio] = useState(false);
   const richEditorRef = useRef<RichTextEditorRef>(null);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const composerRootRef = useRef<HTMLDivElement>(null);
 
   // 🎯 EMOJI PICKER: Estado
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
@@ -168,16 +165,22 @@ const MessageInput: React.FC<MessageInputProps> = ({
 
   const handleSelectCannedResponse = useCallback(
     async (cannedResponse: CannedResponse) => {
-      const currentMessage = richEditorRef.current?.getContent() || '';
-
-      const slashIndex = currentMessage.lastIndexOf('/');
-      const newMessage =
-        slashIndex >= 0
-          ? currentMessage.substring(0, slashIndex) + cannedResponse.content
-          : cannedResponse.content;
+      const newMessage = buildCannedResponseMessage(
+        richEditorRef.current?.getContent() || '',
+        cannedResponse.content,
+      );
 
       richEditorRef.current?.setContent(newMessage);
       setCurrentEditorMessage(newMessage);
+
+      // A canned response with media owns the attachment slot (channels send a single
+      // attachment); drop any manually-added files so both are never sent together.
+      if ((cannedResponse.attachments?.length ?? 0) > 0) {
+        if (selectedFiles.length > 0) {
+          toast.info(t('messageInput.cannedResponse.manualAttachmentsRemoved'));
+          setSelectedFiles([]);
+        }
+      }
 
       setSelectedCannedResponse(cannedResponse);
       setSelectedCannedResponseId(cannedResponse.id);
@@ -190,7 +193,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
         richEditorRef.current?.focus();
       }, 0);
     },
-    [],
+    [selectedFiles, t],
   );
 
   // 🎯 CANNED RESPONSES: Filtrar respostas com base na query
@@ -198,13 +201,6 @@ const MessageInput: React.FC<MessageInputProps> = ({
     if (!showCannedResponses) return [];
     return searchCannedResponses(cannedResponseQuery);
   }, [showCannedResponses, cannedResponseQuery, searchCannedResponses]);
-
-  // Forçar modo de nota privada quando a conversa está pendente
-  useEffect(() => {
-    if (isPendingConversation && replyMode !== ReplyMode.NOTE) {
-      setReplyMode(ReplyMode.NOTE);
-    }
-  }, [isPendingConversation, replyMode]);
 
   useEffect(() => {
     if (replyToMessage) {
@@ -269,51 +265,15 @@ const MessageInput: React.FC<MessageInputProps> = ({
     async (data: AudioRecordingData) => {
       try {
         setIsSending(true);
-        const isPrivate = replyMode === ReplyMode.NOTE;
 
-        // Converter áudio para o formato correto por canal:
-        // - WhatsApp (todos os provedores): OGG/Opus para PTT nativo
-        // - Instagram: WAV
-        let audioFile = data.file;
-        if (isWhatsApp) {
-          try {
-            const convertingToastId = toast.loading(t('messageInput.audio.converting'));
-            const { convertToOggOpus } = await import('@/utils/audio/audioConversionUtils');
-            const oggBlob = await convertToOggOpus(data.blob, percent => {
-              toast.loading(`${t('messageInput.audio.converting')} ${percent}%`, {
-                id: convertingToastId,
-              });
-            });
-            toast.dismiss(convertingToastId);
-            const fileName = data.file.name.replace(/\.\w+$/i, '.ogg');
-            audioFile = new File([oggBlob], fileName, { type: 'audio/ogg; codecs=opus' });
-          } catch (conversionError) {
-            console.error('Erro ao converter áudio para OGG/Opus:', conversionError);
-            toast.warning(t('messageInput.audio.conversionWarning'), {
-              description: t('messageInput.audio.conversionWarningDescription'),
-            });
-            // Continuar com o arquivo original em caso de falha na conversão
-          }
-        } else if (isInstagram && data.file.type === 'audio/webm') {
-          try {
-            toast.info(t('messageInput.audio.converting'), { duration: 2000 });
-            const { convertToWav } = await import('@/utils/audio/audioConversionUtils');
-            const wavBlob = await convertToWav(data.blob);
-            const fileName = data.file.name.replace(/\.webm$/i, '.wav');
-            audioFile = new File([wavBlob], fileName, { type: 'audio/wav' });
-          } catch (conversionError) {
-            console.error('Erro ao converter áudio para WAV:', conversionError);
-            toast.warning(t('messageInput.audio.conversionWarning'), {
-              description: t('messageInput.audio.conversionWarningDescription'),
-            });
-          }
-        }
+        // Gravador (opus-recorder) já entrega OGG/Opus direto — sem conversão extra.
+        const audioFile = data.file;
 
         // Enviar arquivo de áudio (isRecordedAudio sinaliza ao backend para setar PTT/voice)
         await onSendMessage({
           content: '',
           files: [audioFile],
-          isPrivate,
+          isPrivate: false,
           templateParams: undefined,
           cannedResponseId: null,
           isRecordedAudio: true,
@@ -328,7 +288,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
         setIsSending(false);
       }
     },
-    [onSendMessage, replyMode, t, isWhatsApp, isInstagram],
+    [onSendMessage, t],
   );
 
   const handleAudioRecordingCancel = useCallback(() => {
@@ -352,6 +312,28 @@ const MessageInput: React.FC<MessageInputProps> = ({
   );
 
   const [showTemplatesModal, setShowTemplatesModal] = useState(false);
+  const [showScheduleModal, setShowScheduleModal] = useState(false);
+
+  // Notas da Conversa (§3.4) — a faixa SUBSTITUI a barra normal do composer
+  // (não é modal); salvar envia como mensagem privada (mesmo pipeline de
+  // onSendMessage), sem endpoint/entidade própria.
+  const [notesMode, setNotesMode] = useState(false);
+  const [isSavingNote, setIsSavingNote] = useState(false);
+
+  const handleSaveNote = useCallback(
+    async (content: string) => {
+      setIsSavingNote(true);
+      try {
+        await onSendMessage({ content, isPrivate: true });
+        setNotesMode(false);
+      } catch (error) {
+        console.error('Error saving note:', error);
+      } finally {
+        setIsSavingNote(false);
+      }
+    },
+    [onSendMessage],
+  );
 
   const handleTemplateClick = useCallback(() => {
     setShowTemplatesModal(true);
@@ -400,61 +382,31 @@ const MessageInput: React.FC<MessageInputProps> = ({
   }, [showCannedResponses]);
 
   const handleSend = async () => {
-    const isPrivate = replyMode === ReplyMode.NOTE;
     let currentMessage = richEditorRef.current?.getContent() || '';
 
     if ((!currentMessage && selectedFiles.length === 0) || isDisabled || isSending) {
       return;
     }
 
-    if (!isPrivate && hasSignature) {
+    if (hasSignature) {
       currentMessage = appendSignatureIfEnabled(currentMessage);
     }
 
     setIsSending(true);
 
     try {
-      // Convert uploaded audio files to OGG/Opus for WhatsApp PTT (acceptance criteria:
-      // "Works for in-browser recordings AND uploaded audio files"). Track which
-      // resulting filenames are PTT so the backend marks only those attachments —
-      // important when audio + non-audio files are mixed in the same message.
-      let filesToSend = selectedFiles;
-      const recordedAudioFilenames: string[] = [];
-      if (isWhatsApp && selectedFiles.some(f => f.type.startsWith('audio/'))) {
-        const { convertToOggOpus } = await import('@/utils/audio/audioConversionUtils');
-        filesToSend = await Promise.all(
-          selectedFiles.map(async file => {
-            if (!file.type.startsWith('audio/')) return file;
-            try {
-              const convertingToastId = toast.loading(t('messageInput.audio.converting'));
-              const oggBlob = await convertToOggOpus(file, percent => {
-                toast.loading(`${t('messageInput.audio.converting')} ${percent}%`, {
-                  id: convertingToastId,
-                });
-              });
-              toast.dismiss(convertingToastId);
-              const oggName = file.name.replace(/\.\w+$/i, '.ogg');
-              recordedAudioFilenames.push(oggName);
-              return new File([oggBlob], oggName, {
-                type: 'audio/ogg; codecs=opus',
-              });
-            } catch {
-              toast.warning(t('messageInput.audio.conversionWarning'), {
-                description: t('messageInput.audio.conversionWarningDescription'),
-              });
-              // Fallback: still mark as PTT so Baileys/EvoGo set ptt:true on the
-              // original (non-OGG) audio — Cloud already hardcodes voice:true.
-              recordedAudioFilenames.push(file.name);
-              return file;
-            }
-          }),
-        );
-      }
+      // Uploaded audio files are sent as-is. For WhatsApp, Baileys/EvoGo will mark
+      // them as PTT (Cloud already hardcodes voice:true). The browser recorder path
+      // delivers OGG/Opus directly via opus-recorder, so this fallback only matters
+      // when a user manually attaches a file (mp3/m4a/wav/etc.).
+      const filesToSend = selectedFiles;
+      const recordedAudioFilenames: string[] =
+        isWhatsApp ? selectedFiles.filter(f => f.type.startsWith('audio/')).map(f => f.name) : [];
 
       await onSendMessage({
         content: currentMessage,
         files: filesToSend.length > 0 ? filesToSend : undefined,
-        isPrivate,
+        isPrivate: false,
         templateParams: undefined,
         cannedResponseId: selectedCannedResponseId,
         isRecordedAudio: recordedAudioFilenames.length > 0 ? recordedAudioFilenames : undefined,
@@ -504,7 +456,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
           return true;
         }
 
-        if (e.key === 'Enter') {
+        if (e.key === 'Enter' && !e.shiftKey) {
           e.preventDefault();
           const selectedCanned = filteredCannedResponses[selectedCannedIndex];
           if (selectedCanned) {
@@ -527,9 +479,41 @@ const MessageInput: React.FC<MessageInputProps> = ({
     [showCannedResponses, filteredCannedResponses, selectedCannedIndex, handleSelectCannedResponse],
   );
 
-  const handleFilesSelected = (files: File[]) => {
+  // Fecha o dropdown de respostas prontas ao clicar fora ou Escape, INDEPENDENTE
+  // de foco no editor — handleCannedResponseKeyDown só roda via handleKeyDown do
+  // ProseMirror (exige foco no contenteditable) e nem cobre lista vazia (guard
+  // `filteredCannedResponses.length > 0`), então sem isto o dropdown ficava preso
+  // aberto sempre que o Escape chegava sem o editor focado ou a busca não achava nada.
+  useEffect(() => {
+    if (!showCannedResponses) return;
+    const onPointerDown = (e: MouseEvent) => {
+      if (composerRootRef.current && !composerRootRef.current.contains(e.target as Node)) {
+        setShowCannedResponses(false);
+        setCannedResponseQuery('');
+        setSelectedCannedIndex(0);
+      }
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setShowCannedResponses(false);
+        setCannedResponseQuery('');
+        setSelectedCannedIndex(0);
+      }
+    };
+    document.addEventListener('mousedown', onPointerDown, true);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown, true);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [showCannedResponses]);
+
+  const handleFilesSelected = useCallback((files: File[]) => {
+    if (hasCannedMedia) {
+      toast.info(t('messageInput.cannedResponse.mediaBlocksManualUpload'));
+      return;
+    }
     setSelectedFiles(prev => [...prev, ...files]);
-    // Toast mais sutil
     const count = files.length;
     toast.success(
       count === 1
@@ -539,7 +523,34 @@ const MessageInput: React.FC<MessageInputProps> = ({
         duration: 2000,
       },
     );
-  };
+  }, [t, hasCannedMedia]);
+
+  // Handle media paste from clipboard (Ctrl+V / Cmd+V)
+  useEffect(() => {
+    const handlePaste = (event: ClipboardEvent) => {
+      if (isDisabled || isSending) return;
+
+      const items = event.clipboardData?.items;
+      if (!items) return;
+
+      const files: File[] = [];
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        if (item.kind === 'file') {
+          const file = item.getAsFile();
+          if (file) files.push(file);
+        }
+      }
+
+      if (files.length > 0) {
+        event.preventDefault();
+        handleFilesSelected(files);
+      }
+    };
+
+    document.addEventListener('paste', handlePaste);
+    return () => document.removeEventListener('paste', handlePaste);
+  }, [isDisabled, isSending, handleFilesSelected]);
 
   const handleRemoveFile = (index: number) => {
     setSelectedFiles(prev => prev.filter((_, i) => i !== index));
@@ -550,21 +561,20 @@ const MessageInput: React.FC<MessageInputProps> = ({
   };
 
   const canSend = (() => {
-    const isPrivate = replyMode === ReplyMode.NOTE;
+    // Conversa pendente: composer fica bloqueado por completo (overlay "Abrir
+    // para responder"), nada pode ser enviado até reabrir.
+    if (isPendingConversation) {
+      return false;
+    }
+
     const currentMessage = richEditorRef.current?.getContent() || '';
-
-    // Se a conversa está pendente, só permitir notas privadas
-    if (isPendingConversation && !isPrivate) {
-      return false;
-    }
-
-    // Para conversas pendentes, não permitir arquivos (apenas notas privadas de texto)
-    if (isPendingConversation && selectedFiles.length > 0) {
-      return false;
-    }
-
     return currentMessage.length > 0 && !isDisabled && !isSending;
   })();
+
+  // Morph do botão mic/enviar (§3.8, estilo do protótipo): vazio → mic,
+  // qualquer conteúdo digitado → enviar. Gravação em andamento tem prioridade.
+  const hasTypedContent = currentEditorMessage.trim().length > 0;
+  const showSendIcon = isRecordingAudio ? false : hasTypedContent || isPendingConversation;
 
   // Texto do tooltip do botão de enviar
   const sendButtonTooltip = React.useMemo(() => {
@@ -578,10 +588,6 @@ const MessageInput: React.FC<MessageInputProps> = ({
     return 'Enviar (Enter)';
   }, [user?.ui_settings?.editor_message_key]);
 
-  const cardClassNames = `
-    w-full border-t border-x-0 border-b-0 rounded-none shadow-lg py-0 gap-0 transition-all duration-200 bg-background
-  `;
-
   // Componente de preview da resposta
   const ReplyPreview = ({ message, onCancel }: { message: Message; onCancel: () => void }) => (
     <div className="w-full border-t-0 border-x-0 border-b border-border bg-muted/50 px-4 py-3">
@@ -592,11 +598,6 @@ const MessageInput: React.FC<MessageInputProps> = ({
             {t('messageInput.replyPreview.replyingTo', {
               name: message.sender?.name || t('messageInput.replyPreview.userFallback'),
             })}
-            {replyMode === ReplyMode.NOTE && (
-              <span className="ml-1 text-xs text-orange-600 font-normal">
-                {t('messageInput.replyPreview.asPrivateNote')}
-              </span>
-            )}
           </span>
         </div>
         <Button
@@ -634,7 +635,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
         <ReplyPreview message={replyToMessage} onCancel={() => onCancelReply?.()} />
       )}
 
-      <Card className={cardClassNames}>
+      <div ref={composerRootRef} className="w-full border-t border-border bg-background relative">
         {/* File Preview – só quando NÃO tiver mídia da canned */}
         {selectedFiles.length > 0 && !hasCannedMedia && (
           <div className="border-b border-border bg-muted/30">
@@ -653,8 +654,9 @@ const MessageInput: React.FC<MessageInputProps> = ({
           <div className="border-b border-border bg-muted/20 px-4 py-2 flex items-center justify-between gap-2">
             <div className="flex items-center gap-2">
               <span className="text-xs text-muted-foreground">
-                Esta resposta rápida inclui {selectedCannedResponse!.attachments!.length} arquivo(s)
-                de mídia. Eles serão enviados junto com a mensagem.
+                {t('messageInput.cannedResponse.mediaBanner', {
+                  count: selectedCannedResponse!.attachments!.length,
+                })}
               </span>
             </div>
             <Button
@@ -662,6 +664,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
               variant="ghost"
               size="icon"
               className="h-6 w-6 flex-shrink-0"
+              aria-label={t('messageInput.cannedResponse.removeMediaAriaLabel')}
               onClick={() => {
                 setSelectedCannedResponse(null);
                 setSelectedCannedResponseId(null);
@@ -673,10 +676,9 @@ const MessageInput: React.FC<MessageInputProps> = ({
           </div>
         )}
 
-        {/* Input Area */}
-        <CardContent className="p-4 px-4 py-4 relative">
-          {/* 🎯 CANNED RESPONSES: Dropdown de sugestões */}
-          {showCannedResponses && (
+        {/* 🎯 CANNED RESPONSES: Dropdown de sugestões */}
+        {showCannedResponses && (
+          <div className="px-4 pt-2">
             <CannedResponsesList
               cannedResponses={filteredCannedResponses}
               selectedIndex={selectedCannedIndex}
@@ -684,129 +686,102 @@ const MessageInput: React.FC<MessageInputProps> = ({
               isLoading={isCannedResponsesLoading}
               onSelect={handleSelectCannedResponse}
             />
-          )}
+          </div>
+        )}
 
-          {/* Primeira linha: Reply Mode Toggle + Botões de ação rápida */}
-          <div className="flex items-center justify-between mb-3 gap-3">
-            {/* Reply Mode Toggle */}
-            <ReplyModeToggle
-              currentMode={isPendingConversation ? ReplyMode.NOTE : replyMode}
-              onModeChange={isPendingConversation ? () => {} : setReplyMode}
+        {notesMode ? (
+          <NoteComposer onSave={handleSaveNote} onExit={() => setNotesMode(false)} isSaving={isSavingNote} />
+        ) : isRecordingAudio ? (
+          <AudioRecorder
+            onRecordingComplete={handleAudioRecordingComplete}
+            onRecordingCancel={handleAudioRecordingCancel}
+            disabled={isDisabled || isSending}
+            autoStart={true}
+            preferWhatsAppCloudFormat={isWhatsApp}
+          />
+        ) : (
+          <div className="flex items-center gap-2 px-4 py-3 relative">
+            {/* Overlay de bloqueio (status ≠ aberto) — cobre a barra inteira; SÓ
+                cadeado + texto, sem duplicar o botão "Abrir" (fica no header). */}
+            {isPendingConversation && (
+              <div className="absolute inset-0 z-10 flex items-center justify-center gap-2 bg-muted/95 backdrop-blur-[1px] px-4 text-center">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className="text-muted-foreground flex-shrink-0">
+                  <rect x="5" y="11" width="14" height="10" rx="2" />
+                  <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+                </svg>
+                <p className="text-sm text-muted-foreground font-medium">
+                  {t('messageInput.placeholders.pendingNote')}
+                </p>
+              </div>
+            )}
+
+            {/* + menu */}
+            <ComposerPlusMenu
               disabled={isDisabled || isSending || isPendingConversation}
-              forcedMode={isPendingConversation ? ReplyMode.NOTE : undefined}
+              onOpenQuickReplies={handleCannedResponsesClick}
+              onPickDocuments={() =>
+                document.getElementById('composer-file-input-document')?.click()
+              }
+              onPickMedia={() => document.getElementById('composer-file-input-media')?.click()}
+              onOpenConversationNote={() => setNotesMode(true)}
+              onSchedule={() => setShowScheduleModal(true)}
+              scheduleDisabled={!hasTypedContent}
+              onOpenTemplates={isWhatsAppCloud ? handleTemplateClick : undefined}
             />
 
-            {/* Botões de ação rápida - à direita */}
-            <div className="flex-shrink-0 flex items-center gap-1.5">
-              {/* Message Signature Button */}
-              {hasSignature && replyMode === ReplyMode.REPLY && !isPendingConversation && (
-                <div className="relative group">
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    disabled={isDisabled || isSending}
-                    className={`h-9 w-9 flex-shrink-0 border-input hover:bg-accent hover:border-accent-foreground/20 disabled:opacity-50 transition-colors ${
-                      isSignatureEnabled
-                        ? 'bg-green-50 border-green-500 dark:bg-green-950/30 dark:border-green-500'
-                        : ''
-                    }`}
-                    onClick={toggleSignature}
-                  >
-                    <PenLine
-                      className={`h-4 w-4 ${
-                        isSignatureEnabled ? 'text-green-600 dark:text-green-400' : ''
-                      }`}
-                    />
-                  </Button>
-                  <div className="absolute bottom-full right-0 mb-2 px-3 py-2 bg-gray-900 dark:bg-gray-700 text-white text-xs rounded-md whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
-                    {isSignatureEnabled
-                      ? t('messageInput.signature.disable')
-                      : t('messageInput.signature.enable')}
-                    <div className="absolute top-full right-3 -mt-1">
-                      <div className="border-4 border-transparent border-t-gray-900 dark:border-t-gray-700"></div>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* AI Assistance Button */}
-              <AIAssistanceButton
-                currentMessage={currentEditorMessage}
-                onApplyText={text => {
-                  richEditorRef.current?.setContent(text);
-                  setCurrentEditorMessage(text);
-                }}
-                disabled={isDisabled || isSending || isPendingConversation}
-                conversationId={conversationId?.toString()}
-              />
-            </div>
-          </div>
-
-          {/* Segunda linha: Botões de formatação + Input + Botões de envio */}
-          <div className="flex items-end gap-2 w-full overflow-visible">
-            {/* Botões de formatação à esquerda */}
-            <div className="flex-shrink-0 flex items-center gap-1.5 pb-1">
-              {/* File Upload Button */}
-              <FileUpload
-                onFilesSelected={handleFilesSelected}
-                maxFileSize={10}
-                multiple={true}
-                disabled={isDisabled || isSending || isPendingConversation || hasCannedMedia}
-              />
-
-              {/* Emoji Button */}
-              <div className="relative">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  disabled={isDisabled || isSending || isPendingConversation}
-                  className="h-9 w-9 flex-shrink-0 hover:bg-accent disabled:opacity-50"
-                  onClick={handleEmojiClick}
-                >
-                  <Smile className="h-4 w-4" />
-                </Button>
-                <EmojiPicker
-                  isOpen={showEmojiPicker}
-                  onEmojiSelect={handleEmojiSelect}
-                  onClose={() => setShowEmojiPicker(false)}
-                />
-              </div>
-              {/* Canned Responses Button */}
-              <Button
-                variant={showCannedResponses ? 'default' : 'ghost'}
-                size="icon"
-                disabled={isDisabled || isSending || isPendingConversation}
-                className="h-9 w-9 flex-shrink-0 hover:bg-accent disabled:opacity-50"
-                onClick={handleCannedResponsesClick}
-                title={t('messageInput.cannedResponses.tooltip')}
-              >
-                <MessageSquareText className="h-4 w-4" />
-              </Button>
-
-              {/* Template Button */}
+            {/* Emoji */}
+            <div className="relative flex-shrink-0">
               <Button
                 variant="ghost"
                 size="icon"
-                disabled={isSending || isPendingConversation}
+                disabled={isDisabled || isSending || isPendingConversation}
                 className="h-9 w-9 flex-shrink-0 hover:bg-accent disabled:opacity-50"
-                onClick={handleTemplateClick}
-                title={t('messageTemplates.button.title')}
+                onClick={handleEmojiClick}
               >
-                <FileText className="h-4 w-4" />
+                <Smile className="h-[22px] w-[22px] text-primary" strokeWidth={2.2} />
               </Button>
+              <EmojiPicker
+                isOpen={showEmojiPicker}
+                onEmojiSelect={handleEmojiSelect}
+                onClose={() => setShowEmojiPicker(false)}
+              />
             </div>
 
-            {/* Text Input Container */}
-            <div className="flex-1 min-w-0 overflow-hidden">
+            {/* Macros */}
+            {conversationId && (
+              <MacrosButton
+                conversationId={String(conversationId)}
+                disabled={isDisabled || isSending || isPendingConversation}
+              />
+            )}
+
+            {/* Message Signature (extra do CRM, sem equivalente no protótipo — mantido) */}
+            {hasSignature && !isPendingConversation && (
+              <div className="relative group flex-shrink-0">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  disabled={isDisabled || isSending}
+                  className={`h-9 w-9 flex-shrink-0 hover:bg-accent disabled:opacity-50 transition-colors ${
+                    isSignatureEnabled ? 'text-green-600 dark:text-green-400' : ''
+                  }`}
+                  onClick={toggleSignature}
+                >
+                  <PenLine className="h-4 w-4" />
+                </Button>
+                <div className="absolute bottom-full right-0 mb-2 px-3 py-2 bg-gray-900 dark:bg-gray-700 text-white text-xs rounded-md whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
+                  {isSignatureEnabled
+                    ? t('messageInput.signature.disable')
+                    : t('messageInput.signature.enable')}
+                </div>
+              </div>
+            )}
+
+            {/* Pill input — 1 linha, sem card ao redor, igual ao protótipo */}
+            <div className="flex-1 min-w-0 relative">
               <RichTextEditor
                 ref={richEditorRef}
-                placeholder={
-                  isPendingConversation
-                    ? t('messageInput.placeholders.pendingNote')
-                    : replyMode === ReplyMode.NOTE
-                      ? t('messageInput.placeholders.privateNote')
-                      : t('messageInput.placeholders.default')
-                }
+                placeholder={t('messageInput.placeholders.default')}
                 onChange={content => {
                   setCurrentEditorMessage(content);
                   detectCannedResponseTrigger(content);
@@ -819,19 +794,6 @@ const MessageInput: React.FC<MessageInputProps> = ({
                 onKeyDown={event => {
                   if (handleCannedResponseKeyDown(event as unknown as React.KeyboardEvent)) {
                     return true;
-                  }
-
-                  if (event.altKey) {
-                    if (event.key === 'p' || event.key === 'P') {
-                      event.preventDefault();
-                      setReplyMode(ReplyMode.NOTE);
-                      return true;
-                    }
-                    if (event.key === 'l' || event.key === 'L') {
-                      event.preventDefault();
-                      setReplyMode(ReplyMode.REPLY);
-                      return true;
-                    }
                   }
 
                   const messageKey = user?.ui_settings?.editor_message_key || 'enter';
@@ -852,68 +814,99 @@ const MessageInput: React.FC<MessageInputProps> = ({
 
                   return false;
                 }}
-                disabled={isDisabled || isSending || (isPendingConversation && replyMode !== ReplyMode.NOTE)}
-                className="min-h-[100px]"
-                showToolbar={!isPendingConversation}
+                disabled={isDisabled || isSending || isPendingConversation}
+                singleLine
+                className="flex items-center min-h-[46px] w-full rounded-[23px] border border-border bg-background px-[22px] py-[10px]"
               />
             </div>
 
-            {/* Action Buttons */}
-            <div className="flex-shrink-0 flex items-center gap-1.5 pb-1">
-              {replyMode === ReplyMode.REPLY && !isPendingConversation && (
-                <Button
-                  variant={isRecordingAudio ? 'default' : 'ghost'}
-                  size="icon"
-                  disabled={isDisabled || isSending}
-                  className={
-                    isRecordingAudio
-                      ? 'bg-primary hover:bg-primary/85 text-primary-foreground h-9 w-9 flex-shrink-0 shadow-md transition-all duration-200'
-                      : 'h-9 w-9 flex-shrink-0 hover:bg-accent transition-all duration-200'
-                  }
-                  onClick={startAudioRecording}
-                >
-                  <Mic className="h-4 w-4" />
-                </Button>
-              )}
+            {/* Hidden pickers driven by ComposerPlusMenu — one owns the global
+                drag&drop overlay (category "all") so drop UX stays unchanged;
+                the other two are click-only (menu-triggered) pickers. */}
+            <FileUpload
+              inputId="composer-file-input-all"
+              onFilesSelected={handleFilesSelected}
+              maxFileSize={100}
+              multiple={true}
+              category="all"
+              disabled={isDisabled || isSending || isPendingConversation || hasCannedMedia}
+            >
+              <></>
+            </FileUpload>
+            <FileUpload
+              inputId="composer-file-input-document"
+              onFilesSelected={handleFilesSelected}
+              maxFileSize={100}
+              multiple={true}
+              category="document"
+              enableGlobalDropZone={false}
+              disabled={isDisabled || isSending || isPendingConversation || hasCannedMedia}
+            >
+              <></>
+            </FileUpload>
+            <FileUpload
+              inputId="composer-file-input-media"
+              onFilesSelected={handleFilesSelected}
+              maxFileSize={100}
+              multiple={true}
+              category="media"
+              enableGlobalDropZone={false}
+              disabled={isDisabled || isSending || isPendingConversation || hasCannedMedia}
+            >
+              <></>
+            </FileUpload>
 
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
+            {/* AI Assistance (sparkles) */}
+            <AIAssistanceButton
+              currentMessage={currentEditorMessage}
+              onApplyText={text => {
+                richEditorRef.current?.setContent(text);
+                setCurrentEditorMessage(text);
+              }}
+              disabled={isDisabled || isSending || isPendingConversation}
+              conversationId={conversationId?.toString()}
+            />
+
+            {/* Mic / Send — troca conforme conteúdo digitado */}
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  {showSendIcon ? (
                     <Button
+                      variant="ghost"
                       size="icon"
                       onClick={handleSend}
                       disabled={!canSend}
-                      className="bg-primary hover:bg-primary/85 text-primary-foreground h-9 w-9 flex-shrink-0 disabled:bg-muted disabled:text-muted-foreground disabled:opacity-50"
+                      className="h-9 w-9 flex-shrink-0 hover:bg-accent disabled:opacity-50 text-primary"
                     >
                       {isSending ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
+                        <Loader2 className="h-5 w-5 animate-spin" />
                       ) : (
-                        <Send className="h-4 w-4" />
+                        <Send className="h-5 w-5" />
                       )}
                     </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <p>{sendButtonTooltip}</p>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-            </div>
+                  ) : (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      disabled={isDisabled || isSending}
+                      className={`h-9 w-9 flex-shrink-0 hover:bg-accent transition-all duration-200 ${
+                        isRecordingAudio ? 'text-destructive' : 'text-primary'
+                      }`}
+                      onClick={startAudioRecording}
+                    >
+                      <Mic className="h-5 w-5" />
+                    </Button>
+                  )}
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>{showSendIcon ? sendButtonTooltip : t('messageInput.audio.recordTooltip')}</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
           </div>
-        </CardContent>
-      </Card>
-
-      {isRecordingAudio && (
-        <div className="mt-4">
-          <AudioRecorder
-            onRecordingComplete={handleAudioRecordingComplete}
-            onRecordingCancel={handleAudioRecordingCancel}
-            disabled={isDisabled || isSending}
-            autoStart={true}
-            preferWhatsAppCloudFormat={isWhatsApp}
-            shouldPreloadConverter={isWhatsApp}
-          />
-        </div>
-      )}
+        )}
+      </div>
 
       {/* Message Templates Modal */}
       <MessageTemplateModal
@@ -924,6 +917,17 @@ const MessageInput: React.FC<MessageInputProps> = ({
         isWhatsAppCloud={isWhatsAppCloud}
         onSend={handleSendTemplate}
       />
+
+      {/* Schedule Message Modal */}
+      {conversationId && (
+        <ScheduleMessageModal
+          isOpen={showScheduleModal}
+          onClose={() => setShowScheduleModal(false)}
+          conversationId={conversationId}
+          channelType={channelType}
+          messageContent={currentEditorMessage}
+        />
+      )}
     </>
   );
 };

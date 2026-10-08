@@ -24,12 +24,16 @@
       "noAssignee": "NA",
       "noContent": "Nessun contenuto"
     },
+    "push": {
+      "fallbackTitle": "Nuova notifica",
+      "bodyWithAssignee": "Assegnata a {{name}}"
+    },
     "panel": {
-      "title": "Notifiche non lette",
+      "title": "Notifiche",
       "markAllAsRead": "Segna tutte come lette",
       "loading": "Caricamento notifiche...",
       "emptyTitle": "Tutto a posto!",
-      "emptyDescription": "Non hai notifiche non lette al momento.",
+      "emptyDescription": "Non hai notifiche al momento.",
       "pagination": {
         "separator": " - "
       },
@@ -46,7 +50,8 @@
         "conversation_opened": "Conversazione Aperta",
         "conversation_closed": "Conversazione Chiusa",
         "message_updated": "Messaggio Aggiornato",
-        "message_deleted": "Messaggio Eliminato"
+        "message_deleted": "Messaggio Eliminato",
+        "channel_message": "Nuovo messaggio via {{channel}}"
       }
     }
   },
@@ -80,10 +85,14 @@
       "conversations": "Conversazioni",
       "contacts": "Contatti",
       "pipelines": "Pipeline",
+      "products": "Prodotti",
       "agents": "Agenti",
       "channels": "Canali",
+      "automation": "Automazioni",
       "tutorials": "Tutorial",
-      "settings": "Impostazioni"
+      "settings": "Impostazioni",
+      "campaigns": "Campagne",
+      "journeys": "Percorsi"
     },
     "contacts": {
       "list": "Contatti",
@@ -96,15 +105,23 @@
     },
     "settings": {
       "account": "Account",
-      "users": "Agenti",
+      "users": "Utenti",
       "teams": "Team",
       "labels": "Etichette",
       "customAttributes": "Attributi Personalizzati",
       "cannedResponses": "Risposte Predefinite",
+      "aiCredentials": "Credenziali di IA",
+      "integrationCredentials": "Credenziali di integrazione",
+      "messageTemplates": "Modelli di Messaggio",
       "macros": "Macro",
+      "templates": "Modelli",
       "integrations": "Integrazioni",
       "accessTokens": "Tokens di Accesso",
-      "admin": "Impostazioni Admin"
+      "roles": "Profili e Permessi",
+      "admin": "Impostazioni Admin",
+      "segments": "Segmenti",
+      "crmForms": "Moduli di acquisizione",
+      "chatPages": "Pagine di chat"
     }
   }
 }

@@ -18,6 +18,15 @@ ENV VITE_AUTH_API_URL=VITE_AUTH_API_URL_PLACEHOLDER
 ENV VITE_WS_URL=VITE_WS_URL_PLACEHOLDER
 ENV VITE_EVOAI_API_URL=VITE_EVOAI_API_URL_PLACEHOLDER
 ENV VITE_AGENT_PROCESSOR_URL=VITE_AGENT_PROCESSOR_URL_PLACEHOLDER
+ENV VITE_EVOFLOW_API_URL=VITE_EVOFLOW_API_URL_PLACEHOLDER
+
+# App version (release tag, e.g. v1.0.0-rc3). Pass via:
+#   docker build --build-arg APP_VERSION=$(git describe --tags --always --dirty) ...
+# The .git directory is not copied into the build context, so vite.config.ts
+# cannot run `git describe` from inside the container — the build-arg is the
+# only signal. Falls back to 'dev' if not provided.
+ARG APP_VERSION=dev
+ENV APP_VERSION=$APP_VERSION
 
 # Build the application
 RUN npm run build
@@ -33,7 +42,11 @@ COPY nginx.conf /etc/nginx/conf.d/default.conf
 
 # Copy runtime entrypoint
 COPY docker-entrypoint.sh /docker-entrypoint.sh
-RUN chmod +x /docker-entrypoint.sh
+# Normalize CRLF->LF (defense in depth alongside .gitattributes): a Windows
+# checkout leaves \r in the shebang (#!/bin/sh\r), making the kernel look for
+# "/bin/sh\r" -> "exec: no such file or directory". See EVO-2020.
+RUN sed -i 's/\r$//' /docker-entrypoint.sh \
+    && chmod +x /docker-entrypoint.sh
 
 # Expose port
 EXPOSE 80

@@ -8,6 +8,9 @@ import {
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '@evoapi/design-system/dropdown-menu';
 import {
@@ -26,10 +29,16 @@ import {
   Trash2,
   Archive,
   Pin,
+  GitBranch,
+  Check,
+  X,
+  Bot,
 } from 'lucide-react';
 import { Conversation } from '@/types/chat/api';
+import type { Pipeline, PipelineStage } from '@/types/analytics';
 import { useConversations } from '@/hooks/chat/useConversations';
 import { useLanguage } from '@/hooks/useLanguage';
+import { findItemInPipeline } from '@/utils/chat/pipelineUtils';
 
 interface ConversationActionsDropdownProps {
   conversation: Conversation | null;
@@ -40,6 +49,15 @@ interface ConversationActionsDropdownProps {
   onAssignTeam?: (conversation: Conversation) => void;
   onAssignTag?: (conversation: Conversation) => void;
   onDeleteConversation?: (conversation: Conversation) => void;
+  allPipelines?: Pipeline[];
+  isPipelinesLoaded?: boolean;
+  pipelinesForConversation?: Pipeline[];
+  pipelinesLoadFailed?: boolean;
+  isLoadingPipelines?: boolean;
+  onPipelineStageSelect?: (pipeline: Pipeline, stage: PipelineStage) => void;
+  onRemoveFromPipeline?: (pipeline: Pipeline) => void;
+  onRetryLoadPipelines?: () => Promise<void>;
+  onDropdownOpen?: () => void;
 }
 
 const ConversationActionsDropdown: React.FC<ConversationActionsDropdownProps> = ({
@@ -51,6 +69,15 @@ const ConversationActionsDropdown: React.FC<ConversationActionsDropdownProps> = 
   onAssignTeam,
   onAssignTag,
   onDeleteConversation,
+  allPipelines,
+  isPipelinesLoaded,
+  pipelinesForConversation,
+  pipelinesLoadFailed,
+  isLoadingPipelines,
+  onPipelineStageSelect,
+  onRemoveFromPipeline,
+  onRetryLoadPipelines,
+  onDropdownOpen,
 }) => {
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
   const [isUpdatingPriority, setIsUpdatingPriority] = useState(false);
@@ -70,6 +97,21 @@ const ConversationActionsDropdown: React.FC<ConversationActionsDropdownProps> = 
       setOpen(false);
     } catch (error) {
       console.error('❌ Error updating status:', error);
+    } finally {
+      setIsUpdatingStatus(false);
+    }
+  };
+
+  // EVO-1680 — reverse human→bot handoff. Hits a dedicated endpoint that, on
+  // top of the pending transition, clears assignee_id and persists a timeline
+  // activity so the BotProcessorService picks it up on the next incoming msg.
+  const handleReturnToBot = async () => {
+    setIsUpdatingStatus(true);
+    try {
+      await conversations.returnConversationToBot(conversation.id, onFilterReload);
+      setOpen(false);
+    } catch (error) {
+      console.error('❌ Error returning conversation to bot:', error);
     } finally {
       setIsUpdatingStatus(false);
     }
@@ -125,6 +167,12 @@ const ConversationActionsDropdown: React.FC<ConversationActionsDropdownProps> = 
   const currentStatus = conversation.status;
   const currentPriority = conversation.priority;
   const hasUnreadMessages = (conversation.unread_count ?? 0) > 0;
+  // EVO-1680 — gate for the "Devolver ao bot" item. The backend serializer
+  // exposes inbox.agent_bot_active reflecting Inbox#active_bot?. When true and
+  // the conversation is open, we replace the legacy "Mark as Pending" with the
+  // dedicated reverse handoff action; otherwise the legacy item is preserved.
+  const agentBotActive = Boolean(conversation.inbox?.agent_bot_active);
+  const canReturnToBot = currentStatus === 'open' && agentBotActive;
 
   const getPriorityColor = (priority: string) => {
     const colors = {
@@ -147,7 +195,7 @@ const ConversationActionsDropdown: React.FC<ConversationActionsDropdownProps> = 
   };
 
   return (
-    <DropdownMenu open={open} onOpenChange={setOpen}>
+    <DropdownMenu open={open} onOpenChange={o => { setOpen(o); if (o) onDropdownOpen?.(); }}>
       <DropdownMenuTrigger asChild>
         <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
           <MoreVertical className="h-4 w-4" />
@@ -215,7 +263,7 @@ const ConversationActionsDropdown: React.FC<ConversationActionsDropdownProps> = 
           </DropdownMenuItem>
         )}
 
-        {currentStatus !== 'pending' && (
+        {currentStatus !== 'pending' && !canReturnToBot && (
           <DropdownMenuItem
             onClick={() => handleStatusChange('pending')}
             disabled={isUpdatingStatus}
@@ -223,6 +271,17 @@ const ConversationActionsDropdown: React.FC<ConversationActionsDropdownProps> = 
           >
             <Clock className="h-4 w-4" />
             {t('conversationActionsDropdown.markAsPending')}
+          </DropdownMenuItem>
+        )}
+
+        {canReturnToBot && (
+          <DropdownMenuItem
+            onClick={handleReturnToBot}
+            disabled={isUpdatingStatus}
+            className="flex items-center gap-2"
+          >
+            <Bot className="h-4 w-4" />
+            {t('conversationActionsDropdown.returnToBot')}
           </DropdownMenuItem>
         )}
 
@@ -333,6 +392,91 @@ const ConversationActionsDropdown: React.FC<ConversationActionsDropdownProps> = 
             ? t('conversationActionsDropdown.unarchiveConversation')
             : t('conversationActionsDropdown.archiveConversation')}
         </DropdownMenuItem>
+
+        {allPipelines !== undefined && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuLabel className="text-xs text-muted-foreground">
+              {t('pipeline.section')}
+            </DropdownMenuLabel>
+            {pipelinesLoadFailed ? (
+              <DropdownMenuItem
+                className="text-destructive text-xs"
+                onClick={() => onRetryLoadPipelines?.()}
+              >
+                {t('pipeline.loadError')}
+              </DropdownMenuItem>
+            ) : !isPipelinesLoaded ? (
+              <DropdownMenuItem disabled className="text-xs">
+                {t('pipeline.loading')}
+              </DropdownMenuItem>
+            ) : allPipelines.length === 0 ? (
+              <DropdownMenuItem disabled className="text-xs">
+                {t('pipeline.noPipelines')}
+              </DropdownMenuItem>
+            ) : null}
+            {isPipelinesLoaded && !pipelinesLoadFailed && allPipelines.map(pipeline => {
+              const convId = String(conversation!.id);
+              const convInThisPipeline = pipelinesForConversation?.find(p => p.id === pipeline.id);
+              const currentItem = convInThisPipeline
+                ? findItemInPipeline(convInThisPipeline, convId)
+                : undefined;
+              return (
+                <DropdownMenuSub key={pipeline.id}>
+                  <DropdownMenuSubTrigger className="flex items-center gap-2">
+                    <GitBranch className="h-4 w-4" />
+                    {pipeline.name}
+                  </DropdownMenuSubTrigger>
+                  <DropdownMenuSubContent>
+                    {isLoadingPipelines ? (
+                      <DropdownMenuItem disabled className="text-xs">
+                        {t('pipeline.loading')}
+                      </DropdownMenuItem>
+                    ) : (
+                      <>
+                        {(pipeline.stages ?? []).map(stage => {
+                          const isCurrentStage = currentItem?.stage_id === stage.id;
+                          return (
+                            <DropdownMenuItem
+                              key={stage.id}
+                              onClick={() => {
+                                onPipelineStageSelect?.(pipeline, stage);
+                                setOpen(false);
+                              }}
+                              className="flex items-center gap-2"
+                            >
+                              {isCurrentStage ? (
+                                <Check className="h-3 w-3 text-primary" />
+                              ) : (
+                                <span className="w-3" />
+                              )}
+                              {stage.name}
+                            </DropdownMenuItem>
+                          );
+                        })}
+                        {convInThisPipeline && (
+                          <>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              onClick={() => {
+                                onRemoveFromPipeline?.(convInThisPipeline);
+                                setOpen(false);
+                              }}
+                              className="flex items-center gap-2 text-destructive focus:text-destructive"
+                            >
+                              <X className="h-4 w-4" />
+                              {t('pipeline.removeFrom')}
+                            </DropdownMenuItem>
+                          </>
+                        )}
+                      </>
+                    )}
+                  </DropdownMenuSubContent>
+                </DropdownMenuSub>
+              );
+            })}
+          </>
+        )}
 
         <DropdownMenuSeparator />
 

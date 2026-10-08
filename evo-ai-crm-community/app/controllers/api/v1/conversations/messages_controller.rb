@@ -1,4 +1,12 @@
 class Api::V1::Conversations::MessagesController < Api::V1::Conversations::BaseController
+  require_permissions({
+    index: 'conversations.read',
+    create: 'conversations.update',
+    update: 'conversations.update',
+    destroy: 'conversations.update',
+    retry: 'conversations.update'
+  })
+
   before_action :ensure_api_inbox, only: :update
 
   def index
@@ -32,24 +40,22 @@ class Api::V1::Conversations::MessagesController < Api::V1::Conversations::BaseC
 
   def update
     @message = message
-    Messages::StatusUpdateService.new(@message, permitted_params[:status], permitted_params[:external_error]).perform
+    previous_status = @message.status
+    target_status = permitted_params[:status]
+    return invalid_transition_response(previous_status, target_status) unless perform_status_update(target_status)
 
     success_response(
       data: MessageSerializer.serialize(@message.reload, include_attachments: true, include_sender: true),
       message: 'Message updated successfully'
     )
   rescue StandardError => e
-    error_response(
-      ApiErrorCodes::VALIDATION_ERROR,
-      'Failed to update message',
-      details: e.message,
-      status: :unprocessable_entity
-    )
+    error_response(ApiErrorCodes::VALIDATION_ERROR, 'Failed to update message', details: e.message, status: :unprocessable_entity)
   end
 
   def destroy
     @message = message
     @message.update!(content_attributes: (@message.content_attributes || {}).merge(deleted: true))
+    enqueue_provider_delete(@message)
 
     success_response(
       data: MessageSerializer.serialize(@message, include_attachments: true, include_sender: true),
@@ -73,10 +79,10 @@ class Api::V1::Conversations::MessagesController < Api::V1::Conversations::BaseC
   def retry
     @message = message
 
+    # Reset to :sent directly (StatusUpdateService would reject the no-op
+    # `sent → sent` Wisper publish anyway). Channel webhooks emit the
+    # subsequent delivered/read events through the canonical funnel.
     @message.update!(status: :sent, content_attributes: {})
-
-    service = Messages::StatusUpdateService.new(@message, 'sent')
-    service.perform
 
     ::SendReplyJob.perform_now(@message.id)
 
@@ -94,6 +100,31 @@ class Api::V1::Conversations::MessagesController < Api::V1::Conversations::BaseC
   end
 
   private
+
+  # EVO-1891: when an agent deletes an OUTGOING message, revoke it on the provider
+  # (delete-for-everyone) where supported. Done in a background job so a slow or
+  # unreachable provider never blocks/delays the CRM soft-delete response.
+  def enqueue_provider_delete(message)
+    return unless message.outgoing?
+
+    channel = message.conversation&.inbox&.channel
+    return unless channel.respond_to?(:delete_message)
+
+    Whatsapp::DeleteMessageOnProviderJob.perform_later(message.id)
+  end
+
+  def perform_status_update(target_status)
+    Messages::StatusUpdateService.new(@message, target_status, permitted_params[:external_error]).perform
+  end
+
+  def invalid_transition_response(previous_status, target_status)
+    error_response(
+      ApiErrorCodes::VALIDATION_ERROR,
+      'Invalid status transition',
+      details: "#{previous_status} → #{target_status}",
+      status: :unprocessable_entity
+    )
+  end
 
   def message
     @message ||= @conversation.messages.find(permitted_params[:id])

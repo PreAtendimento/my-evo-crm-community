@@ -6,6 +6,11 @@ import type {
   MessageTemplateComponent,
 } from '@/types/channels/inbox';
 import { extractResponse } from '@/utils/apiHelpers';
+import {
+  extractTemplateFormVariables,
+  extractTemplateVariables,
+  normalizeTemplateVariables,
+} from '@/utils/templateVariables';
 
 /**
  * Determine if a channel supports WhatsApp-style template sync
@@ -112,23 +117,28 @@ export const getChannelTemplateConfig = (channelType: string) => {
 
 const MessageTemplateService = {
   /**
-   * Get all templates for an inbox with pagination support
+   * Get all templates for an inbox with pagination support. Hits the flat,
+   * account-scoped `/message_templates` endpoint (EVO-1716) and passes
+   * `inbox_id` so the backend resolves the inbox's channel and returns that
+   * channel's templates.
    */
   async getTemplates(
     inboxId: string,
     params?: {
       page?: number;
       per_page?: number;
+      // NOTE: the backend `index` reads `params[:search]` (search_by_name); the
+      // legacy `query` field below is never honored — always pass `search`.
+      search?: string;
       query?: string;
       category?: string;
       active?: boolean;
     },
   ): Promise<MessageTemplateResponse> {
     try {
-      const response = await api.get<MessageTemplateResponse>(
-        `/inboxes/${inboxId}/message_templates`,
-        { params },
-      );
+      const response = await api.get<MessageTemplateResponse>(`/message_templates`, {
+        params: { ...params, inbox_id: inboxId },
+      });
 
       return extractResponse<MessageTemplate>(response) as MessageTemplateResponse;
     } catch (error) {
@@ -161,7 +171,8 @@ const MessageTemplateService = {
     try {
       const backendTemplate = this.transformToBackendFormat(templateData, channelType);
 
-      const { data } = await api.post(`/inboxes/${inboxId}/message_templates`, {
+      const { data } = await api.post(`/message_templates`, {
+        inbox_id: inboxId,
         message_template: backendTemplate,
       });
       return data;
@@ -183,7 +194,8 @@ const MessageTemplateService = {
     try {
       const backendTemplate = this.transformToBackendFormat(templateData, channelType);
 
-      const { data } = await api.put(`/inboxes/${inboxId}/message_templates/${templateId}`, {
+      const { data } = await api.put(`/message_templates/${templateId}`, {
+        inbox_id: inboxId,
         message_template: backendTemplate,
       });
       return data;
@@ -198,7 +210,9 @@ const MessageTemplateService = {
    */
   async deleteTemplate(inboxId: string, templateId: string): Promise<void> {
     try {
-      await api.delete(`/inboxes/${inboxId}/message_templates/${templateId}`);
+      await api.delete(`/message_templates/${templateId}`, {
+        params: { inbox_id: inboxId },
+      });
     } catch (error) {
       console.error('MessageTemplateService.deleteTemplate error:', error);
       throw error;
@@ -238,8 +252,12 @@ const MessageTemplateService = {
     // For structured channels (WhatsApp, Facebook, Instagram)
     if (isStructured && config.supportsStructured) {
       const components: MessageTemplateComponent[] = [];
-      // Add header component
-      if (templateData.headerText && templateData.headerFormat) {
+      // Add header component (skip when there is no header / format is NONE)
+      if (
+        templateData.headerText &&
+        templateData.headerFormat &&
+        templateData.headerFormat !== 'NONE'
+      ) {
         components.push({
           type: 'HEADER',
           format: templateData.headerFormat,
@@ -291,6 +309,7 @@ const MessageTemplateService = {
         category: templateData.category,
         template_type: templateData.template_type || 'interactive',
         components,
+        variables: extractTemplateFormVariables(templateData),
         ...(templateData.mediaUrl && { media_url: templateData.mediaUrl }),
         ...(templateData.mediaType && { media_type: templateData.mediaType }),
         ...(templateData.settings && { settings: templateData.settings }),
@@ -306,6 +325,7 @@ const MessageTemplateService = {
       language: templateData.language,
       category: templateData.category,
       template_type: templateData.template_type || 'text',
+      variables: extractTemplateFormVariables(templateData),
       ...(templateData.mediaUrl && { media_url: templateData.mediaUrl }),
       ...(templateData.mediaType && { media_type: templateData.mediaType }),
       settings: {
@@ -334,6 +354,7 @@ const MessageTemplateService = {
       ...(template.settings && { settings: template.settings }),
       ...(template.metadata && { metadata: template.metadata }),
       active: template.active !== false,
+      variables: extractTemplateVariables(template),
     };
 
     // Extract subject from settings for email templates
@@ -343,7 +364,7 @@ const MessageTemplateService = {
 
     // Parse structured components if available
     if (isStructured && template.components) {
-      result.headerFormat = 'TEXT';
+      result.headerFormat = 'NONE';
       result.headerText = '';
       result.bodyText = '';
       result.footerText = '';
@@ -390,10 +411,9 @@ const MessageTemplateService = {
       return Array.from(matches, m => m[1]);
     }
 
-    // WhatsApp and other channels use {{1}}, {{2}} or {{variable}} syntax
-    const whatsappPattern = /\{\{(\w+)\}\}/g;
-    const matches = content.matchAll(whatsappPattern);
-    return Array.from(matches, m => m[1]);
+    return normalizeTemplateVariables(
+      Array.from(content.matchAll(/\{\{\s*([a-zA-Z0-9_.]+)\s*\}\}/g), m => m[1]),
+    ).map(variable => variable.name);
   },
 };
 

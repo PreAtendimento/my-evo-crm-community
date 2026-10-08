@@ -16,6 +16,8 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from fastapi import Request
 
+from src.utils.json_encoder import SafeJSONResponse
+
 # Import error codes for mapping
 try:
     from src.core.error_codes import (
@@ -28,7 +30,10 @@ try:
         BAD_REQUEST,
         CONFLICT,
         EXTERNAL_SERVICE_ERROR,
-        TIMEOUT_ERROR
+        TIMEOUT_ERROR,
+        RATE_LIMIT_EXCEEDED,
+        PAYLOAD_TOO_LARGE,
+        CLIENT_CLOSED_REQUEST
     )
 except ImportError:
     # Fallback if error_codes module is not available
@@ -42,6 +47,9 @@ except ImportError:
     CONFLICT = "CONFLICT"
     EXTERNAL_SERVICE_ERROR = "EXTERNAL_SERVICE_ERROR"
     TIMEOUT_ERROR = "TIMEOUT_ERROR"
+    RATE_LIMIT_EXCEEDED = "RATE_LIMIT_EXCEEDED"
+    PAYLOAD_TOO_LARGE = "PAYLOAD_TOO_LARGE"
+    CLIENT_CLOSED_REQUEST = "CLIENT_CLOSED_REQUEST"
 
 
 class PaginationMeta(BaseModel):
@@ -65,8 +73,8 @@ class MetaInfoPagination(MetaInfo):
 class MetaInfoError(BaseModel):
     """Metadata information for error responses"""
     timestamp: str = Field(..., description="ISO8601 timestamp")
-    path: str = Field(..., description="Path of the request")
-    method: str = Field(..., description="HTTP method of the request")
+    path: Optional[str] = Field(None, description="Path of the request")
+    method: Optional[str] = Field(None, description="HTTP method of the request")
 
 
 class ErrorInfo(BaseModel):
@@ -109,7 +117,7 @@ def success_response(
     """
     # For 204 No Content, return empty response body
     if status_code == 204:
-        return JSONResponse(
+        return SafeJSONResponse(
             status_code=status_code,
             content=None
         )
@@ -125,7 +133,7 @@ def success_response(
         message=message
     )
     
-    return JSONResponse(
+    return SafeJSONResponse(
         status_code=status_code,
         content=response.model_dump(exclude_none=True)
     )
@@ -147,7 +155,12 @@ def map_status_to_error_code(status_code: int) -> str:
         403: FORBIDDEN,
         404: NOT_FOUND,
         409: CONFLICT,
+        413: PAYLOAD_TOO_LARGE,
         422: VALIDATION_ERROR,
+        # CRM-236: without these three, an upstream quota refusal, an oversized
+        # request and a caller that hung up all fell through to INTERNAL_ERROR.
+        429: RATE_LIMIT_EXCEEDED,
+        499: CLIENT_CLOSED_REQUEST,
         500: INTERNAL_ERROR,
         502: EXTERNAL_SERVICE_ERROR,
         503: EXTERNAL_SERVICE_ERROR,
@@ -158,9 +171,9 @@ def map_status_to_error_code(status_code: int) -> str:
 
 
 def error_response(
-    request: Request,
-    code: str,
-    message: str,
+    request: Optional[Request] = None,
+    code: str = "ERROR",
+    message: str = "Error",
     details: Optional[Any] = None,
     status_code: int = 400
 ) -> JSONResponse:
@@ -189,12 +202,12 @@ def error_response(
         error=error_info,
         meta=MetaInfoError(
             timestamp=datetime.now(timezone.utc).isoformat(),
-            path=str(request.url.path),
-            method=request.method
+            path=str(request.url.path) if request else None,
+            method=request.method if request else None
         )
     )
         
-    return JSONResponse(
+    return SafeJSONResponse(
         status_code=status_code,
         content=response.model_dump(exclude_none=True)
     )
@@ -248,7 +261,7 @@ def paginated_response(
         message=message
     )
     
-    return JSONResponse(
+    return SafeJSONResponse(
         status_code=status_code,
         content=response.model_dump(exclude_none=True)
     )

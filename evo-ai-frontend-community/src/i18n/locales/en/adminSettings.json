@@ -3,12 +3,10 @@
   "navigation": {
     "email": "Email",
     "storage": "Storage",
-    "socialLogin": "Social Login",
     "channels": "Channels",
     "openai": "OpenAI",
     "integrations": "Integrations",
-    "inboundEmail": "Inbound Email",
-    "frontendRuntime": "Frontend Runtime"
+    "evolutionHub": "Evo Hub"
   },
   "email": {
     "title": "Email Configuration",
@@ -61,7 +59,11 @@
     "testConnection": "Test Connection",
     "testing": "Testing...",
     "testFailed": "Connection test failed",
-    "testError": "Failed to run connection test"
+    "testError": "Failed to run connection test",
+    "envWarning": {
+      "title": "Heads up:",
+      "body": "Saving here persists the values, but the email service still reads SMTP credentials from environment variables at boot time. Until EVO-1049 ships, configure SMTP via env vars to take effect."
+    }
   },
   "storage": {
     "title": "Storage Configuration",
@@ -70,13 +72,16 @@
       "label": "Storage Provider",
       "local": "Local Storage",
       "amazon": "Amazon S3",
-      "s3Compatible": "S3-Compatible"
+      "amazonHelp": "AWS S3 — uses Region and your AWS credentials. No custom endpoint needed.",
+      "s3CompatibleHelp": "Any S3-compatible provider that isn't AWS (MinIO, Cloudflare R2, DigitalOcean Spaces…). Requires a custom Endpoint.",
+      "s3Compatible": "S3-Compatible (MinIO, Cloudflare R2, DigitalOcean Spaces…)"
     },
     "fields": {
       "bucketName": "Bucket Name",
       "accessKeyId": "Access Key ID",
       "accessSecret": "Secret Access Key",
       "region": "Region",
+      "endpointHelp": "URL of your S3-compatible provider's endpoint. Only for S3-Compatible — leave blank for AWS.",
       "endpoint": "Endpoint"
     },
     "placeholders": {
@@ -105,11 +110,21 @@
     "testConnection": "Test Connection",
     "testing": "Testing...",
     "testFailed": "Connection test failed",
-    "testError": "Failed to run connection test"
+    "testError": "Failed to run connection test",
+    "cloudWarning": {
+      "title": "Important:",
+      "body": "S3 credentials (access key, secret, region, endpoint) are embedded in the service configuration at startup — changing them here requires restarting the auth and CRM services and their Sidekiq workers to take effect. Provider changes may take up to 60 seconds to propagate across all services. Existing files remain on the previous storage provider; only new uploads will use the updated configuration."
+    }
   },
   "socialLogin": {
-    "title": "Social Login Configuration",
-    "description": "Configure OAuth credentials for social login providers so users can sign in with Google or Microsoft.",
+    "callbackUrl": {
+      "label": "OAuth redirect URI (register in the provider console)",
+      "hint": "Add this exact URL to your OAuth app's authorized redirect URIs — it must match exactly (https, no trailing slash).",
+      "copy": "Copy callback URL",
+      "copied": "Callback URL copied"
+    },
+    "title": "Email provider credentials (OAuth)",
+    "description": "OAuth app credentials (Google / Microsoft) used to connect Gmail and Outlook email channels.",
     "google": {
       "cardTitle": "Google OAuth",
       "fields": {
@@ -156,6 +171,9 @@
     "saving": "Saving..."
   },
   "channels": {
+    "email": {
+      "tabTitle": "Email"
+    },
     "title": "Channel Integrations",
     "description": "Configure credentials for messaging channels and integrations.",
     "secretConfigured": "Configured",
@@ -224,11 +242,11 @@
       "tabTitle": "Evolution",
       "fields": {
         "apiUrl": "API URL",
-        "adminSecret": "Admin Secret"
+        "adminSecret": "Admin Token"
       },
       "placeholders": {
         "apiUrl": "https://evolution-api.example.com",
-        "adminSecret": "Enter new admin secret"
+        "adminSecret": "Enter new admin token"
       },
       "saveSuccess": "Evolution configuration saved successfully",
       "saveError": "Failed to save Evolution configuration"
@@ -237,15 +255,11 @@
       "tabTitle": "Evolution Go",
       "fields": {
         "apiUrl": "API URL",
-        "adminSecret": "Admin Secret",
-        "instanceId": "Instance ID",
-        "instanceSecret": "Instance Secret"
+        "adminSecret": "Admin Token"
       },
       "placeholders": {
         "apiUrl": "https://evolution-go.example.com",
-        "adminSecret": "Enter new admin secret",
-        "instanceId": "Your Evolution Go Instance ID",
-        "instanceSecret": "Enter new instance secret"
+        "adminSecret": "Enter new admin token"
       },
       "saveSuccess": "Evolution Go configuration saved successfully",
       "saveError": "Failed to save Evolution Go configuration"
@@ -267,6 +281,16 @@
       "saveSuccess": "Twitter configuration saved successfully",
       "saveError": "Failed to save Twitter configuration"
     },
+    "clearConfig": {
+      "button": "Clear Configuration",
+      "dialogTitle": "Clear Configuration",
+      "dialogDescription": "Are you sure? This will remove all credentials for this provider. The provider will stop working until you reconfigure it.",
+      "cancel": "Cancel",
+      "confirm": "Clear",
+      "clearing": "Clearing...",
+      "success": "Configuration cleared successfully",
+      "error": "Failed to clear configuration"
+    },
     "messages": {
       "loadError": "Failed to load channel configuration"
     }
@@ -286,7 +310,9 @@
         "apiUrl": "https://api.openai.com/v1",
         "apiSecret": "Enter new API key",
         "model": "gpt-4o"
-      }
+      },
+      "credentialMoved": "The AI credential now lives in Settings > AI Credentials.",
+      "goToCredentials": "Go to AI Credentials"
     },
     "prompts": {
       "cardTitle": "AI Prompt Templates",
@@ -325,8 +351,14 @@
     "saving": "Saving..."
   },
   "integrations": {
+    "callbackUrl": {
+      "label": "OAuth redirect URI (register in the provider console)",
+      "hint": "Add this exact URL to your OAuth app's authorized redirect URIs — it must match exactly (https, no trailing slash).",
+      "copy": "Copy callback URL",
+      "copied": "Callback URL copied"
+    },
     "title": "Integrations Configuration",
-    "description": "Configure OAuth credentials for third-party integrations such as Linear, HubSpot, Shopify, and Slack.",
+    "description": "Configure OAuth credentials for third-party integrations such as Linear, GitHub, Notion, and others.",
     "secretConfigured": "Configured",
     "secretNotConfigured": "Not configured",
     "clearSecret": "Clear saved value",
@@ -384,13 +416,138 @@
       "saveSuccess": "Slack configuration saved successfully",
       "saveError": "Failed to save Slack configuration"
     },
+    "github": {
+      "cardTitle": "GitHub",
+      "fields": {
+        "clientId": "Client ID",
+        "clientSecret": "Client Secret"
+      },
+      "placeholders": {
+        "clientId": "Your GitHub Client ID",
+        "clientSecret": "Enter new client secret"
+      },
+      "saveSuccess": "GitHub configuration saved successfully",
+      "saveError": "Failed to save GitHub configuration"
+    },
+    "notion": {
+      "cardTitle": "Notion",
+      "fields": {
+        "clientId": "Client ID",
+        "clientSecret": "Client Secret"
+      },
+      "placeholders": {
+        "clientId": "Your Notion Client ID",
+        "clientSecret": "Enter new client secret"
+      },
+      "saveSuccess": "Notion configuration saved successfully",
+      "saveError": "Failed to save Notion configuration"
+    },
+    "asana": {
+      "cardTitle": "Asana",
+      "fields": {
+        "clientId": "Client ID",
+        "clientSecret": "Client Secret"
+      },
+      "placeholders": {
+        "clientId": "Your Asana Client ID",
+        "clientSecret": "Enter new client secret"
+      },
+      "saveSuccess": "Asana configuration saved successfully",
+      "saveError": "Failed to save Asana configuration"
+    },
+    "canva": {
+      "cardTitle": "Canva",
+      "fields": {
+        "clientId": "Client ID",
+        "clientSecret": "Client Secret"
+      },
+      "placeholders": {
+        "clientId": "Your Canva Client ID",
+        "clientSecret": "Enter new client secret"
+      },
+      "saveSuccess": "Canva configuration saved successfully",
+      "saveError": "Failed to save Canva configuration"
+    },
+    "google_calendar": {
+      "cardTitle": "Google Calendar",
+      "fields": {
+        "clientId": "Client ID",
+        "clientSecret": "Client Secret"
+      },
+      "placeholders": {
+        "clientId": "Your Google Calendar Client ID",
+        "clientSecret": "Enter new client secret"
+      },
+      "saveSuccess": "Google Calendar configuration saved successfully",
+      "saveError": "Failed to save Google Calendar configuration"
+    },
+    "google_sheets": {
+      "cardTitle": "Google Sheets",
+      "fields": {
+        "clientId": "Client ID",
+        "clientSecret": "Client Secret"
+      },
+      "placeholders": {
+        "clientId": "Your Google Sheets Client ID",
+        "clientSecret": "Enter new client secret"
+      },
+      "saveSuccess": "Google Sheets configuration saved successfully",
+      "saveError": "Failed to save Google Sheets configuration"
+    },
+    "monday": {
+      "cardTitle": "Monday.com",
+      "fields": {
+        "clientId": "Client ID",
+        "clientSecret": "Client Secret"
+      },
+      "placeholders": {
+        "clientId": "Your Monday.com Client ID",
+        "clientSecret": "Enter new client secret"
+      },
+      "saveSuccess": "Monday.com configuration saved successfully",
+      "saveError": "Failed to save Monday.com configuration"
+    },
+    "paypal": {
+      "cardTitle": "PayPal",
+      "fields": {
+        "clientId": "Client ID",
+        "clientSecret": "Client Secret"
+      },
+      "placeholders": {
+        "clientId": "Your PayPal Client ID",
+        "clientSecret": "Enter new client secret"
+      },
+      "saveSuccess": "PayPal configuration saved successfully",
+      "saveError": "Failed to save PayPal configuration"
+    },
+    "atlassian": {
+      "cardTitle": "Atlassian",
+      "fields": {
+        "clientId": "Client ID",
+        "clientSecret": "Client Secret"
+      },
+      "placeholders": {
+        "clientId": "Your Atlassian Client ID",
+        "clientSecret": "Enter new client secret"
+      },
+      "saveSuccess": "Atlassian configuration saved successfully",
+      "saveError": "Failed to save Atlassian configuration"
+    },
     "messages": {
       "loadError": "Failed to load integrations configuration"
-    }
+    },
+    "statusConfigured": "Configured",
+    "statusNotConfigured": "Not configured",
+    "dialogSubtitle": "Enter the OAuth credentials for this integration.",
+    "remove": "Remove",
+    "removing": "Removing...",
+    "removeSuccess": "Configuration removed",
+    "removeError": "Failed to remove configuration",
+    "cancel": "Cancel"
   },
   "inboundEmail": {
-    "title": "Inbound Email Configuration",
-    "description": "Configure the inbound email provider and credentials used for receiving and processing incoming emails.",
+    "title": "Inbound email (receive as conversations)",
+    "description": "Lets the CRM receive emails as conversations. Requires an external receiving service (relay, Mailgun or Mandrill) configured for your domain.",
     "provider": {
       "label": "Inbound Email Service",
       "relay": "Relay (Exim / Postfix / Qmail)",
@@ -425,10 +582,10 @@
     "saving": "Saving..."
   },
   "frontendRuntime": {
-    "title": "Frontend Runtime Configuration",
-    "description": "Configure reCAPTCHA and Clarity settings that are loaded by the frontend at runtime.",
+    "title": "Analytics & Security",
+    "description": "Third-party front-end service keys: Google reCAPTCHA (bot protection) and Microsoft Clarity (analytics).",
     "fields": {
-      "cardTitle": "Runtime Keys",
+      "cardTitle": "reCAPTCHA & Clarity",
       "recaptchaSiteKey": "reCAPTCHA Site Key",
       "clarityProjectId": "Clarity Project ID"
     },
@@ -443,5 +600,34 @@
     },
     "save": "Save Configuration",
     "saving": "Saving..."
+  },
+  "evolutionHub": {
+    "title": "Evo Hub",
+    "description": "Use Evo Hub as a proxy layer for Meta channels (WhatsApp Cloud, Messenger, Instagram). When enabled, the CRM replaces direct Graph API calls with Hub-relayed ones.",
+    "sections": {
+      "connection": "Connection"
+    },
+    "fields": {
+      "enabled": "Use Evo Hub",
+      "enabledHelp": "When ON, all Meta calls (WA Cloud, Messenger, Instagram) go through the configured Hub.",
+      "url": "Hub URL",
+      "apiKey": "API Key",
+      "webhookSecret": "Webhook Secret (HMAC)",
+      "webhookSecretPlaceholder": "Shared secret used to sign incoming webhooks",
+      "webhookSecretHelp": "Use a strong random string. The Hub uses this secret to sign webhooks it sends to this CRM.",
+      "secretSet": "configured"
+    },
+    "actions": {
+      "save": "Save",
+      "test": "Test connection",
+      "generateSecret": "Generate random secret"
+    },
+    "messages": {
+      "saved": "Evo Hub configuration saved",
+      "saveError": "Failed to save configuration",
+      "loadError": "Failed to load configuration",
+      "testError": "Connection test failed",
+      "testUnknown": "Unknown response from Hub"
+    }
   }
 }

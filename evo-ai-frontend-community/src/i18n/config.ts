@@ -24,15 +24,23 @@ import ptBRLayout from './locales/pt-BR/layout.json';
 import ptBRCommon from './locales/pt-BR/common.json';
 import ptBRAccountSettings from './locales/pt-BR/accountSettings.json';
 import ptBRCannedResponses from './locales/pt-BR/cannedResponses.json';
+import ptBRMessageTemplates from './locales/pt-BR/messageTemplates.json';
+import ptBRProducts from './locales/pt-BR/products.json';
+import ptBRCrmForms from './locales/pt-BR/crmForms.json';
+import ptBRChatPages from './locales/pt-BR/chatPages.json';
+import ptBRTemplates from './locales/pt-BR/templates.json';
 import ptBRCustomAttributes from './locales/pt-BR/customAttributes.json';
 import ptBRLabels from './locales/pt-BR/labels.json';
 import ptBRMacros from './locales/pt-BR/macros.json';
+import ptBRAutomation from './locales/pt-BR/automation.json';
 import ptBRTeams from './locales/pt-BR/teams.json';
 import ptBRUsers from './locales/pt-BR/users.json';
 import ptBRMarketplace from './locales/pt-BR/marketplace.json';
 import ptBRDocumentation from './locales/pt-BR/documentation.json';
 import ptBRAiAgents from './locales/pt-BR/aiAgents.json';
 import ptBRApiKeys from './locales/pt-BR/apiKeys.json';
+import ptBRAiCredentials from './locales/pt-BR/aiCredentials.json';
+import ptBRIntegrationCredentials from './locales/pt-BR/integrationCredentials.json';
 import ptBRAccessTokens from './locales/pt-BR/accessTokens.json';
 import ptBRIntegrations from './locales/pt-BR/integrations.json';
 import ptBRAttachments from './locales/pt-BR/attachments.json';
@@ -46,6 +54,7 @@ import ptBRInstagram from './locales/pt-BR/instagram.json';
 import ptBRMessenger from './locales/pt-BR/messenger.json';
 import ptBRCustomerDashboard from './locales/pt-BR/customerDashboard.json';
 import ptBRAdminSettings from './locales/pt-BR/adminSettings.json';
+import ptBRRoles from './locales/pt-BR/roles.json';
 import ptBRTutorials from './locales/pt-BR/tutorials.json';
 import ptAuth from './locales/pt/auth.json';
 import ptChangePassword from './locales/pt/changePassword.json';
@@ -61,6 +70,7 @@ import ptUnauthorized from './locales/pt/unauthorized.json';
 import ptOAuth from './locales/pt/oauth.json';
 import ptProfile from './locales/pt/profile.json';
 import ptOnboarding from './locales/pt/onboarding.json';
+import ptSetup from './locales/pt/setup.json';
 import ptWidget from './locales/pt/widget.json';
 import ptPipelines from './locales/pt/pipelines.json';
 import ptContacts from './locales/pt/contacts.json';
@@ -69,15 +79,23 @@ import ptLayout from './locales/pt/layout.json';
 import ptCommon from './locales/pt/common.json';
 import ptAccountSettings from './locales/pt/accountSettings.json';
 import ptCannedResponses from './locales/pt/cannedResponses.json';
+import ptMessageTemplates from './locales/pt/messageTemplates.json';
+import ptProducts from './locales/pt/products.json';
+import ptCrmForms from './locales/pt/crmForms.json';
+import ptChatPages from './locales/pt/chatPages.json';
+import ptTemplates from './locales/pt/templates.json';
 import ptCustomAttributes from './locales/pt/customAttributes.json';
 import ptLabels from './locales/pt/labels.json';
 import ptMacros from './locales/pt/macros.json';
+import ptAutomation from './locales/pt/automation.json';
 import ptTeams from './locales/pt/teams.json';
 import ptUsers from './locales/pt/users.json';
 import ptMarketplace from './locales/pt/marketplace.json';
 import ptDocumentation from './locales/pt/documentation.json';
 import ptAiAgents from './locales/pt/aiAgents.json';
 import ptApiKeys from './locales/pt/apiKeys.json';
+import ptAiCredentials from './locales/pt/aiCredentials.json';
+import ptIntegrationCredentials from './locales/pt/integrationCredentials.json';
 import ptAccessTokens from './locales/pt/accessTokens.json';
 import ptIntegrations from './locales/pt/integrations.json';
 import ptAttachments from './locales/pt/attachments.json';
@@ -91,6 +109,7 @@ import ptInstagram from './locales/pt/instagram.json';
 import ptMessenger from './locales/pt/messenger.json';
 import ptCustomerDashboard from './locales/pt/customerDashboard.json';
 import ptAdminSettings from './locales/pt/adminSettings.json';
+import ptRoles from './locales/pt/roles.json';
 import ptTutorials from './locales/pt/tutorials.json';
 import enAuth from './locales/en/auth.json';
 import enChangePassword from './locales/en/changePassword.json';
@@ -115,15 +134,23 @@ import enLayout from './locales/en/layout.json';
 import enCommon from './locales/en/common.json';
 import enAccountSettings from './locales/en/accountSettings.json';
 import enCannedResponses from './locales/en/cannedResponses.json';
+import enMessageTemplates from './locales/en/messageTemplates.json';
+import enProducts from './locales/en/products.json';
+import enCrmForms from './locales/en/crmForms.json';
+import enChatPages from './locales/en/chatPages.json';
+import enTemplates from './locales/en/templates.json';
 import enCustomAttributes from './locales/en/customAttributes.json';
 import enLabels from './locales/en/labels.json';
 import enMacros from './locales/en/macros.json';
+import enAutomation from './locales/en/automation.json';
 import enTeams from './locales/en/teams.json';
 import enUsers from './locales/en/users.json';
 import enMarketplace from './locales/en/marketplace.json';
 import enDocumentation from './locales/en/documentation.json';
 import enAiAgents from './locales/en/aiAgents.json';
 import enApiKeys from './locales/en/apiKeys.json';
+import enAiCredentials from './locales/en/aiCredentials.json';
+import enIntegrationCredentials from './locales/en/integrationCredentials.json';
 import enAccessTokens from './locales/en/accessTokens.json';
 import enIntegrations from './locales/en/integrations.json';
 import enAttachments from './locales/en/attachments.json';
@@ -137,6 +164,7 @@ import enInstagram from './locales/en/instagram.json';
 import enMessenger from './locales/en/messenger.json';
 import enCustomerDashboard from './locales/en/customerDashboard.json';
 import enAdminSettings from './locales/en/adminSettings.json';
+import enRoles from './locales/en/roles.json';
 import enTutorials from './locales/en/tutorials.json';
 import esAuth from './locales/es/auth.json';
 import esChangePassword from './locales/es/changePassword.json';
@@ -152,6 +180,7 @@ import esUnauthorized from './locales/es/unauthorized.json';
 import esOAuth from './locales/es/oauth.json';
 import esProfile from './locales/es/profile.json';
 import esOnboarding from './locales/es/onboarding.json';
+import esSetup from './locales/es/setup.json';
 import esWidget from './locales/es/widget.json';
 import esPipelines from './locales/es/pipelines.json';
 import esContacts from './locales/es/contacts.json';
@@ -160,15 +189,23 @@ import esLayout from './locales/es/layout.json';
 import esCommon from './locales/es/common.json';
 import esAccountSettings from './locales/es/accountSettings.json';
 import esCannedResponses from './locales/es/cannedResponses.json';
+import esMessageTemplates from './locales/es/messageTemplates.json';
+import esProducts from './locales/es/products.json';
+import esCrmForms from './locales/es/crmForms.json';
+import esChatPages from './locales/es/chatPages.json';
+import esTemplates from './locales/es/templates.json';
 import esCustomAttributes from './locales/es/customAttributes.json';
 import esLabels from './locales/es/labels.json';
 import esMacros from './locales/es/macros.json';
+import esAutomation from './locales/es/automation.json';
 import esTeams from './locales/es/teams.json';
 import esUsers from './locales/es/users.json';
 import esMarketplace from './locales/es/marketplace.json';
 import esDocumentation from './locales/es/documentation.json';
 import esAiAgents from './locales/es/aiAgents.json';
 import esApiKeys from './locales/es/apiKeys.json';
+import esAiCredentials from './locales/es/aiCredentials.json';
+import esIntegrationCredentials from './locales/es/integrationCredentials.json';
 import esAccessTokens from './locales/es/accessTokens.json';
 import esIntegrations from './locales/es/integrations.json';
 import esAttachments from './locales/es/attachments.json';
@@ -182,6 +219,7 @@ import esInstagram from './locales/es/instagram.json';
 import esMessenger from './locales/es/messenger.json';
 import esCustomerDashboard from './locales/es/customerDashboard.json';
 import esAdminSettings from './locales/es/adminSettings.json';
+import esRoles from './locales/es/roles.json';
 import esTutorials from './locales/es/tutorials.json';
 import frAuth from './locales/fr/auth.json';
 import frChangePassword from './locales/fr/changePassword.json';
@@ -197,6 +235,7 @@ import frUnauthorized from './locales/fr/unauthorized.json';
 import frOAuth from './locales/fr/oauth.json';
 import frProfile from './locales/fr/profile.json';
 import frOnboarding from './locales/fr/onboarding.json';
+import frSetup from './locales/fr/setup.json';
 import frWidget from './locales/fr/widget.json';
 import frPipelines from './locales/fr/pipelines.json';
 import frContacts from './locales/fr/contacts.json';
@@ -205,15 +244,23 @@ import frLayout from './locales/fr/layout.json';
 import frCommon from './locales/fr/common.json';
 import frAccountSettings from './locales/fr/accountSettings.json';
 import frCannedResponses from './locales/fr/cannedResponses.json';
+import frMessageTemplates from './locales/fr/messageTemplates.json';
+import frProducts from './locales/fr/products.json';
+import frCrmForms from './locales/fr/crmForms.json';
+import frChatPages from './locales/fr/chatPages.json';
+import frTemplates from './locales/fr/templates.json';
 import frCustomAttributes from './locales/fr/customAttributes.json';
 import frLabels from './locales/fr/labels.json';
 import frMacros from './locales/fr/macros.json';
+import frAutomation from './locales/fr/automation.json';
 import frTeams from './locales/fr/teams.json';
 import frUsers from './locales/fr/users.json';
 import frMarketplace from './locales/fr/marketplace.json';
 import frDocumentation from './locales/fr/documentation.json';
 import frAiAgents from './locales/fr/aiAgents.json';
 import frApiKeys from './locales/fr/apiKeys.json';
+import frAiCredentials from './locales/fr/aiCredentials.json';
+import frIntegrationCredentials from './locales/fr/integrationCredentials.json';
 import frAccessTokens from './locales/fr/accessTokens.json';
 import frIntegrations from './locales/fr/integrations.json';
 import frAttachments from './locales/fr/attachments.json';
@@ -227,6 +274,7 @@ import frInstagram from './locales/fr/instagram.json';
 import frMessenger from './locales/fr/messenger.json';
 import frCustomerDashboard from './locales/fr/customerDashboard.json';
 import frAdminSettings from './locales/fr/adminSettings.json';
+import frRoles from './locales/fr/roles.json';
 import frTutorials from './locales/fr/tutorials.json';
 import itAuth from './locales/it/auth.json';
 import itChangePassword from './locales/it/changePassword.json';
@@ -242,6 +290,7 @@ import itUnauthorized from './locales/it/unauthorized.json';
 import itOAuth from './locales/it/oauth.json';
 import itProfile from './locales/it/profile.json';
 import itOnboarding from './locales/it/onboarding.json';
+import itSetup from './locales/it/setup.json';
 import itWidget from './locales/it/widget.json';
 import itPipelines from './locales/it/pipelines.json';
 import itContacts from './locales/it/contacts.json';
@@ -250,15 +299,23 @@ import itLayout from './locales/it/layout.json';
 import itCommon from './locales/it/common.json';
 import itAccountSettings from './locales/it/accountSettings.json';
 import itCannedResponses from './locales/it/cannedResponses.json';
+import itMessageTemplates from './locales/it/messageTemplates.json';
+import itProducts from './locales/it/products.json';
+import itCrmForms from './locales/it/crmForms.json';
+import itChatPages from './locales/it/chatPages.json';
+import itTemplates from './locales/it/templates.json';
 import itCustomAttributes from './locales/it/customAttributes.json';
 import itLabels from './locales/it/labels.json';
 import itMacros from './locales/it/macros.json';
+import itAutomation from './locales/it/automation.json';
 import itTeams from './locales/it/teams.json';
 import itUsers from './locales/it/users.json';
 import itMarketplace from './locales/it/marketplace.json';
 import itDocumentation from './locales/it/documentation.json';
 import itAiAgents from './locales/it/aiAgents.json';
 import itApiKeys from './locales/it/apiKeys.json';
+import itAiCredentials from './locales/it/aiCredentials.json';
+import itIntegrationCredentials from './locales/it/integrationCredentials.json';
 import itAccessTokens from './locales/it/accessTokens.json';
 import itIntegrations from './locales/it/integrations.json';
 import itAttachments from './locales/it/attachments.json';
@@ -272,6 +329,7 @@ import itInstagram from './locales/it/instagram.json';
 import itMessenger from './locales/it/messenger.json';
 import itCustomerDashboard from './locales/it/customerDashboard.json';
 import itAdminSettings from './locales/it/adminSettings.json';
+import itRoles from './locales/it/roles.json';
 import ptBRTours from './locales/pt-BR/tours.json';
 import ptTours from './locales/pt/tours.json';
 import enTours from './locales/en/tours.json';
@@ -279,6 +337,32 @@ import esTours from './locales/es/tours.json';
 import frTours from './locales/fr/tours.json';
 import itTours from './locales/it/tours.json'
 import itTutorials from './locales/it/tutorials.json';
+
+// Segments / Journey / Campaigns namespaces
+import ptBRSegments from './locales/pt-BR/segments.json';
+import ptBRJourney from './locales/pt-BR/journey.json';
+import ptBRCampaigns from './locales/pt-BR/campaigns.json';
+import ptBREvents from './locales/pt-BR/events.json';
+import ptSegments from './locales/pt/segments.json';
+import ptJourney from './locales/pt/journey.json';
+import ptCampaigns from './locales/pt/campaigns.json';
+import ptEvents from './locales/pt/events.json';
+import enSegments from './locales/en/segments.json';
+import enJourney from './locales/en/journey.json';
+import enCampaigns from './locales/en/campaigns.json';
+import enEvents from './locales/en/events.json';
+import esSegments from './locales/es/segments.json';
+import esJourney from './locales/es/journey.json';
+import esCampaigns from './locales/es/campaigns.json';
+import esEvents from './locales/es/events.json';
+import frSegments from './locales/fr/segments.json';
+import frJourney from './locales/fr/journey.json';
+import frCampaigns from './locales/fr/campaigns.json';
+import frEvents from './locales/fr/events.json';
+import itSegments from './locales/it/segments.json';
+import itJourney from './locales/it/journey.json';
+import itCampaigns from './locales/it/campaigns.json';
+import itEvents from './locales/it/events.json';
 export const locales = ['en', 'pt-BR', 'pt', 'fr', 'it', 'es'] as const;
 export const defaultLocale = 'en' as const;
 
@@ -338,15 +422,23 @@ const resources = {
     common: ptBRCommon,
     accountSettings: ptBRAccountSettings,
     cannedResponses: ptBRCannedResponses,
+    messageTemplates: ptBRMessageTemplates,
+    products: ptBRProducts,
+    crmForms: ptBRCrmForms,
+    chatPages: ptBRChatPages,
+    templates: ptBRTemplates,
     customAttributes: ptBRCustomAttributes,
     labels: ptBRLabels,
     macros: ptBRMacros,
+    automation: ptBRAutomation,
     teams: ptBRTeams,
     users: ptBRUsers,
     marketplace: ptBRMarketplace,
     documentation: ptBRDocumentation,
     aiAgents: ptBRAiAgents,
     apiKeys: ptBRApiKeys,
+    aiCredentials: ptBRAiCredentials,
+    integrationCredentials: ptBRIntegrationCredentials,
     accessTokens: ptBRAccessTokens,
     integrations: ptBRIntegrations,
     attachments: ptBRAttachments,
@@ -360,8 +452,13 @@ const resources = {
     messenger: ptBRMessenger,
     customerDashboard: ptBRCustomerDashboard,
     adminSettings: ptBRAdminSettings,
+    roles: ptBRRoles,
     tours: ptBRTours,
     tutorials: ptBRTutorials,
+    segments: ptBRSegments,
+    journey: ptBRJourney,
+    campaigns: ptBRCampaigns,
+    events: ptBREvents,
   },
   pt: {
     auth: ptAuth,
@@ -378,6 +475,7 @@ const resources = {
     oauth: ptOAuth,
     profile: ptProfile,
     onboarding: ptOnboarding,
+    setup: ptSetup,
     widget: ptWidget,
     pipelines: ptPipelines,
     contacts: ptContacts,
@@ -386,15 +484,23 @@ const resources = {
     common: ptCommon,
     accountSettings: ptAccountSettings,
     cannedResponses: ptCannedResponses,
+    messageTemplates: ptMessageTemplates,
+    products: ptProducts,
+    crmForms: ptCrmForms,
+    chatPages: ptChatPages,
+    templates: ptTemplates,
     customAttributes: ptCustomAttributes,
     labels: ptLabels,
     macros: ptMacros,
+    automation: ptAutomation,
     teams: ptTeams,
     users: ptUsers,
     marketplace: ptMarketplace,
     documentation: ptDocumentation,
     aiAgents: ptAiAgents,
     apiKeys: ptApiKeys,
+    aiCredentials: ptAiCredentials,
+    integrationCredentials: ptIntegrationCredentials,
     accessTokens: ptAccessTokens,
     integrations: ptIntegrations,
     attachments: ptAttachments,
@@ -408,8 +514,13 @@ const resources = {
     messenger: ptMessenger,
     customerDashboard: ptCustomerDashboard,
     adminSettings: ptAdminSettings,
+    roles: ptRoles,
     tours: ptTours,
     tutorials: ptTutorials,
+    segments: ptSegments,
+    journey: ptJourney,
+    campaigns: ptCampaigns,
+    events: ptEvents,
   },
   en: {
     auth: enAuth,
@@ -435,15 +546,23 @@ const resources = {
     common: enCommon,
     accountSettings: enAccountSettings,
     cannedResponses: enCannedResponses,
+    messageTemplates: enMessageTemplates,
+    products: enProducts,
+    crmForms: enCrmForms,
+    chatPages: enChatPages,
+    templates: enTemplates,
     customAttributes: enCustomAttributes,
     labels: enLabels,
     macros: enMacros,
+    automation: enAutomation,
     teams: enTeams,
     users: enUsers,
     marketplace: enMarketplace,
     documentation: enDocumentation,
     aiAgents: enAiAgents,
     apiKeys: enApiKeys,
+    aiCredentials: enAiCredentials,
+    integrationCredentials: enIntegrationCredentials,
     accessTokens: enAccessTokens,
     integrations: enIntegrations,
     attachments: enAttachments,
@@ -457,8 +576,13 @@ const resources = {
     messenger: enMessenger,
     customerDashboard: enCustomerDashboard,
     adminSettings: enAdminSettings,
+    roles: enRoles,
     tours: enTours,
     tutorials: enTutorials,
+    segments: enSegments,
+    journey: enJourney,
+    campaigns: enCampaigns,
+    events: enEvents,
   },
   es: {
     auth: esAuth,
@@ -475,6 +599,7 @@ const resources = {
     oauth: esOAuth,
     profile: esProfile,
     onboarding: esOnboarding,
+    setup: esSetup,
     widget: esWidget,
     pipelines: esPipelines,
     contacts: esContacts,
@@ -483,15 +608,23 @@ const resources = {
     common: esCommon,
     accountSettings: esAccountSettings,
     cannedResponses: esCannedResponses,
+    messageTemplates: esMessageTemplates,
+    products: esProducts,
+    crmForms: esCrmForms,
+    chatPages: esChatPages,
+    templates: esTemplates,
     customAttributes: esCustomAttributes,
     labels: esLabels,
     macros: esMacros,
+    automation: esAutomation,
     teams: esTeams,
     users: esUsers,
     marketplace: esMarketplace,
     documentation: esDocumentation,
     aiAgents: esAiAgents,
     apiKeys: esApiKeys,
+    aiCredentials: esAiCredentials,
+    integrationCredentials: esIntegrationCredentials,
     accessTokens: esAccessTokens,
     integrations: esIntegrations,
     attachments: esAttachments,
@@ -505,8 +638,13 @@ const resources = {
     messenger: esMessenger,
     customerDashboard: esCustomerDashboard,
     adminSettings: esAdminSettings,
+    roles: esRoles,
     tours: esTours,
     tutorials: esTutorials,
+    segments: esSegments,
+    journey: esJourney,
+    campaigns: esCampaigns,
+    events: esEvents,
   },
   fr: {
     auth: frAuth,
@@ -523,6 +661,7 @@ const resources = {
     oauth: frOAuth,
     profile: frProfile,
     onboarding: frOnboarding,
+    setup: frSetup,
     widget: frWidget,
     pipelines: frPipelines,
     contacts: frContacts,
@@ -531,15 +670,23 @@ const resources = {
     common: frCommon,
     accountSettings: frAccountSettings,
     cannedResponses: frCannedResponses,
+    messageTemplates: frMessageTemplates,
+    products: frProducts,
+    crmForms: frCrmForms,
+    chatPages: frChatPages,
+    templates: frTemplates,
     customAttributes: frCustomAttributes,
     labels: frLabels,
     macros: frMacros,
+    automation: frAutomation,
     teams: frTeams,
     users: frUsers,
     marketplace: frMarketplace,
     documentation: frDocumentation,
     aiAgents: frAiAgents,
     apiKeys: frApiKeys,
+    aiCredentials: frAiCredentials,
+    integrationCredentials: frIntegrationCredentials,
     accessTokens: frAccessTokens,
     integrations: frIntegrations,
     attachments: frAttachments,
@@ -553,8 +700,13 @@ const resources = {
     messenger: frMessenger,
     customerDashboard: frCustomerDashboard,
     adminSettings: frAdminSettings,
+    roles: frRoles,
     tours: frTours,
     tutorials: frTutorials,
+    segments: frSegments,
+    journey: frJourney,
+    campaigns: frCampaigns,
+    events: frEvents,
   },
   it: {
     auth: itAuth,
@@ -571,6 +723,7 @@ const resources = {
     oauth: itOAuth,
     profile: itProfile,
     onboarding: itOnboarding,
+    setup: itSetup,
     widget: itWidget,
     pipelines: itPipelines,
     contacts: itContacts,
@@ -579,15 +732,23 @@ const resources = {
     common: itCommon,
     accountSettings: itAccountSettings,
     cannedResponses: itCannedResponses,
+    messageTemplates: itMessageTemplates,
+    products: itProducts,
+    crmForms: itCrmForms,
+    chatPages: itChatPages,
+    templates: itTemplates,
     customAttributes: itCustomAttributes,
     labels: itLabels,
     macros: itMacros,
+    automation: itAutomation,
     teams: itTeams,
     users: itUsers,
     marketplace: itMarketplace,
     documentation: itDocumentation,
     aiAgents: itAiAgents,
     apiKeys: itApiKeys,
+    aiCredentials: itAiCredentials,
+    integrationCredentials: itIntegrationCredentials,
     accessTokens: itAccessTokens,
     integrations: itIntegrations,
     attachments: itAttachments,
@@ -601,8 +762,13 @@ const resources = {
     messenger: itMessenger,
     customerDashboard: itCustomerDashboard,
     adminSettings: itAdminSettings,
+    roles: itRoles,
     tours: itTours,
     tutorials: itTutorials,
+    segments: itSegments,
+    journey: itJourney,
+    campaigns: itCampaigns,
+    events: itEvents,
   },
 };
 

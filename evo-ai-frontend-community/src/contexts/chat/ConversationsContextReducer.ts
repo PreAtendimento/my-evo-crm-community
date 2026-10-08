@@ -1,5 +1,8 @@
 import { ConversationsState, ConversationsAction } from '@/types/chat/conversations';
 import { Conversation } from '@/types/chat/api';
+import { PaginationMeta } from '@/types/core';
+import { DEFAULT_PAGE_SIZE } from '@/constants/pagination';
+import { matchesConversationId } from '@/utils/chat/conversationMatcher';
 
 // Helper para verificar se uma conversa foi marcada como lida no localStorage
 const getReadConversationsFromStorage = (): Record<string, boolean> => {
@@ -138,10 +141,35 @@ export function conversationsReducer(
         existingById.set(String(conv.id), conv);
       });
 
+      const mergedConversations = Array.from(existingById.values());
+
+      // A load-more page must never shrink the authoritative count. If a later
+      // page reports a missing/zero total (e.g. parse fallback for a differently
+      // shaped response), keep the previous total instead of overwriting it —
+      // otherwise the displayed count drops to 0 and has_next_page turns false,
+      // killing the infinite scroll mid-list.
+      const incoming = action.payload.pagination;
+      const prev = state.conversationsPagination;
+      const pageSize = incoming.page_size || prev?.page_size || DEFAULT_PAGE_SIZE;
+      const total = incoming.total && incoming.total > 0 ? incoming.total : (prev?.total ?? mergedConversations.length);
+      const total_pages =
+        incoming.total_pages && incoming.total_pages > 0
+          ? incoming.total_pages
+          : (prev?.total_pages || Math.max(1, Math.ceil(total / pageSize)));
+      const page = incoming.page || (prev?.page ?? 1) + 1;
+      const mergedPagination: PaginationMeta = {
+        ...incoming,
+        page,
+        page_size: pageSize,
+        total,
+        total_pages,
+        has_next_page: page < total_pages,
+      };
+
       return {
         ...state,
-        conversations: Array.from(existingById.values()),
-        conversationsPagination: action.payload.pagination,
+        conversations: mergedConversations,
+        conversationsPagination: mergedPagination,
         conversationsLoading: false,
         conversationsError: null,
         unreadCounts: {
@@ -211,41 +239,71 @@ export function conversationsReducer(
 
       const conversationId = String(action.payload.id);
 
-      // Sincronizar unread_count do objeto com o estado unreadCounts
-      // Priorizar unreadCounts (estado local) sobre o valor do objeto
-      // Se a conversa está selecionada e foi marcada como lida (unreadCount = 0), sempre preservar isso
-      const isSelected = state.selectedConversationId === conversationId;
-      const localUnreadCount = state.unreadCounts[conversationId];
-
-      // Se está selecionada e foi marcada como lida, sempre usar 0
-      // Caso contrário, usar o valor local se existir, senão usar o valor do payload
-      const syncedUnreadCount = isSelected && localUnreadCount === 0
-        ? 0
-        : (localUnreadCount ?? action.payload.unread_count ?? 0);
-
       // Atualizar na lista de conversas
-      const updatedConversationsList = state.conversations
-        .filter(conv => conv !== null && conv !== undefined && conv.id) // Filtrar elementos nulos e sem ID
-        .map(conv =>
-          String(conv.id) === conversationId
-            ? {
-                ...conv,
-                ...action.payload, // Merge ao invés de substituir
-                unread_count: syncedUnreadCount, // Sincronizar com estado unreadCounts
-              }
-            : conv,
-        );
+      const cleanConversations = state.conversations
+        .filter(conv => conv !== null && conv !== undefined && conv.id);
+
+      // Resolve the canonical conversation in state regardless of whether the
+      // payload arrived keyed by `id` or `uuid`. The reducer uses this to keep
+      // selection + unread bookkeeping aligned with the update.
+      const targetConv = cleanConversations.find(conv =>
+        matchesConversationId(conv, conversationId),
+      );
+      const existsInList = targetConv != null;
+
+      // Check selection against the resolved conversation (not the raw payload
+      // id), so that a `selectedConversationId` stored as `id` still matches
+      // when the WebSocket frame is keyed by `uuid` (and vice versa).
+      // Race-safety: when the conv isn't in the list yet (e.g. SELECT_CONVERSATION
+      // landed before SET_CONVERSATIONS completed), fall back to direct
+      // comparison so `selectedConversationData` still tracks the incoming
+      // payload — matches the previous reducer behaviour.
+      const selectedIdStr = state.selectedConversationId
+        ? String(state.selectedConversationId)
+        : null;
+      const isSelected =
+        selectedIdStr != null &&
+        (targetConv != null
+          ? matchesConversationId(targetConv, selectedIdStr)
+          : selectedIdStr === conversationId);
+
+      // Sincronizar unread_count do objeto com o estado unreadCounts.
+      // `selectConversation` canonicaliza a selection para `uuid` quando ele
+      // existe, mas `SET_CONVERSATIONS` semeia `unreadCounts` por
+      // `String(conv.id)`. As duas entradas coexistem para a mesma conv, então
+      // checamos ambas — se qualquer uma marcar como lida (0) enquanto a conv
+      // está selecionada, preservamos o 0 contra um payload stale.
+      const canonicalKey = targetConv ? String(targetConv.id) : conversationId;
+      const localUnreadCount = state.unreadCounts[canonicalKey];
+      const selectedKeyUnreadCount =
+        selectedIdStr != null && selectedIdStr !== canonicalKey
+          ? state.unreadCounts[selectedIdStr]
+          : undefined;
+      const syncedUnreadCount =
+        isSelected && (localUnreadCount === 0 || selectedKeyUnreadCount === 0)
+          ? 0
+          : (localUnreadCount ?? selectedKeyUnreadCount ?? action.payload.unread_count ?? 0);
+
+      const updatedConversationsList = existsInList
+        ? cleanConversations.map(conv =>
+            matchesConversationId(conv, conversationId)
+              ? {
+                  ...conv,
+                  ...action.payload,
+                  unread_count: syncedUnreadCount,
+                }
+              : conv,
+          )
+        : [{ ...action.payload, unread_count: syncedUnreadCount }, ...cleanConversations];
 
       // Se é a conversa selecionada, atualizar os dados também
-      const updatedSelectedData =
-        state.selectedConversationId &&
-        String(state.selectedConversationId) === conversationId
-          ? {
-              ...state.selectedConversationData,
-              ...action.payload,
-              unread_count: syncedUnreadCount, // Sincronizar também aqui
-            }
-          : state.selectedConversationData;
+      const updatedSelectedData = isSelected
+        ? {
+            ...state.selectedConversationData,
+            ...action.payload,
+            unread_count: syncedUnreadCount, // Sincronizar também aqui
+          }
+        : state.selectedConversationData;
 
       return {
         ...state,
@@ -257,50 +315,56 @@ export function conversationsReducer(
     case 'UPDATE_CONTACT_IN_CONVERSATIONS': {
       const updatedContact = action.payload;
 
-      // Atualiza meta.sender em todas as conversas que usam esse contato
+      const isSameContactId = (id: string | number | null | undefined): boolean =>
+        id !== null && id !== undefined && String(id) === String(updatedContact.id);
+
+      // The conversation list ships `contact` and no `meta` (ConversationSerializer);
+      // only websocket-born conversations carry `meta.sender`. Matching on
+      // `meta.sender` alone skipped every REST-loaded conversation.
+      const belongsToContact = (conv: Conversation): boolean =>
+        isSameContactId(conv.contact?.id) || isSameContactId(conv.meta?.sender?.id);
+
+      // contact.updated omits what it did not resolve, so an empty field means
+      // "keep the current value" — blanking the visible name is the bug itself.
+      const patchContact = (contact: Conversation['contact']): Conversation['contact'] =>
+        contact && isSameContactId(contact.id)
+          ? {
+              ...contact,
+              name: updatedContact.name || contact.name,
+              email: updatedContact.email || contact.email,
+              phone_number: updatedContact.phone_number || contact.phone_number,
+              avatar: updatedContact.avatar || contact.avatar,
+              avatar_url: updatedContact.avatar_url || contact.avatar_url,
+            }
+          : contact;
+
+      const patchMeta = (meta: Conversation['meta']): Conversation['meta'] =>
+        meta?.sender && isSameContactId(meta.sender.id)
+          ? {
+              ...meta,
+              sender: {
+                ...meta.sender,
+                name: updatedContact.name || meta.sender.name,
+                email: updatedContact.email || meta.sender.email,
+                phone_number: updatedContact.phone_number || meta.sender.phone_number,
+                avatar_url: updatedContact.avatar_url || meta.sender.avatar_url,
+              },
+            }
+          : meta;
+
       const updatedConversations = state.conversations
-      .filter(conv => conv !== null && conv !== undefined && conv.id)
-      .map(conv => {
-        const sender = conv.meta?.sender;
-        if (!sender || String(sender.id) !== String(updatedContact.id)) {
-          return conv;
-        }
+        .filter(conv => conv !== null && conv !== undefined && conv.id)
+        .map(conv =>
+          belongsToContact(conv)
+            ? { ...conv, contact: patchContact(conv.contact), meta: patchMeta(conv.meta) }
+            : conv,
+        );
 
-        return {
-          ...conv,
-          meta: {
-            ...conv.meta,
-            sender: {
-              ...sender,
-              name: updatedContact.name,
-              email: updatedContact.email || sender.email,
-              phone_number: updatedContact.phone_number || sender.phone_number,
-              avatar_url: updatedContact.avatar_url || sender.avatar_url,
-            },
-          },
-        };
-      });
-
-      // Atualizar dados da conversa selecionada, se for o mesmo contato
-      let updatedSelectedConversationData = state.selectedConversationData;
-      if(
-        state.selectedConversationData?.meta?.sender &&
-        String(state.selectedConversationData?.meta?.sender.id) === String(updatedContact.id)
-      ) {
-        updatedSelectedConversationData = {
-          ...state.selectedConversationData,
-          meta: {
-            ...state.selectedConversationData.meta,
-            sender: {
-              ...state.selectedConversationData.meta.sender,
-              name: updatedContact.name,
-              email: updatedContact.email || state.selectedConversationData.meta.sender.email,
-              phone_number: updatedContact.phone_number || state.selectedConversationData.meta.sender.phone_number,
-              avatar_url: updatedContact.avatar_url || state.selectedConversationData.meta.sender.avatar_url,
-            },
-          },
-        };
-      }
+      const selected = state.selectedConversationData;
+      const updatedSelectedConversationData =
+        selected && belongsToContact(selected)
+          ? { ...selected, contact: patchContact(selected.contact), meta: patchMeta(selected.meta) }
+          : selected;
 
       return {
         ...state,
@@ -316,22 +380,20 @@ export function conversationsReducer(
         return state;
       }
 
-      // 🔒 PROTEÇÃO: Verificar se conversa já existe antes de adicionar
-      const existingIndex = state.conversations.findIndex(
-        conv => String(conv.id) === String(action.payload.id),
+      const incomingId = String(action.payload.id);
+
+      const existingIndex = state.conversations.findIndex(conv =>
+        matchesConversationId(conv, incomingId),
       );
 
       if (existingIndex >= 0) {
-        // Se já existe, atualizar ao invés de adicionar (com merge)
         const updatedConversation = { ...state.conversations[existingIndex], ...action.payload };
         return {
           ...state,
           conversations: state.conversations
             .filter(conv => conv !== null && conv !== undefined && conv.id)
             .map(conv =>
-              String(conv.id) === String(action.payload.id)
-                ? updatedConversation // Merge ao invés de substituir
-                : conv,
+              matchesConversationId(conv, incomingId) ? updatedConversation : conv,
             ),
         };
       }
@@ -343,13 +405,23 @@ export function conversationsReducer(
     }
 
     case 'REMOVE_CONVERSATION': {
+      const targetId = String(action.payload);
+      const removed = state.conversations.find(conv =>
+        matchesConversationId(conv, targetId),
+      );
       const filteredConversations = state.conversations.filter(
-        conv => String(conv.id) !== String(action.payload),
+        conv => !matchesConversationId(conv, targetId),
       );
 
-      // Remove from unread counts as well
-      const { [action.payload]: _removed, ...remainingUnreadCounts } = state.unreadCounts; // eslint-disable-line @typescript-eslint/no-unused-vars
+      // `unreadCounts` is keyed by the canonical `String(conv.id)`. When the
+      // caller dispatches by uuid we still want to drop the right key.
+      const unreadKey = removed ? String(removed.id) : targetId;
+      const { [unreadKey]: _removed, ...remainingUnreadCounts } = state.unreadCounts; // eslint-disable-line @typescript-eslint/no-unused-vars
 
+      // O total da paginação é DERIVADO do servidor — não mutamos no client em
+      // remoções (reconcile/realtime). Entre fetches o header pode ficar levemente
+      // alto (mostra 10 com 9 linhas), mas é estável e sem corrida de
+      // double-decrement; self-heals no próximo fetch.
       return {
         ...state,
         conversations: filteredConversations,
@@ -376,25 +448,29 @@ export function conversationsReducer(
       const { conversationId, count } = action.payload;
       const conversationIdStr = String(conversationId);
 
-      // Se está marcando como lida (count = 0), salvar no localStorage
+      // Sync the persisted "read" marker so `SET_CONVERSATIONS` on the next
+      // page load honors the most recent intent. Without the `else` branch a
+      // mark-as-unread leaves a stale `readConversations[id] = true` behind
+      // and F5 silently zeroes the badge again.
+      const readConversations = getReadConversationsFromStorage();
       if (count === 0) {
-        const readConversations = getReadConversationsFromStorage();
         readConversations[conversationIdStr] = true;
+        saveReadConversationsToStorage(readConversations);
+      } else if (readConversations[conversationIdStr]) {
+        delete readConversations[conversationIdStr];
         saveReadConversationsToStorage(readConversations);
       }
 
       return {
         ...state,
-        // Atualizar unreadCounts
         unreadCounts: {
           ...state.unreadCounts,
           [conversationIdStr]: count,
         },
-        // Também atualizar unread_count no objeto da conversa para manter sincronizado
         conversations: state.conversations
           .filter(conv => conv !== null && conv !== undefined && conv.id)
           .map(conv =>
-            String(conv.id) === conversationIdStr
+            matchesConversationId(conv, conversationIdStr)
               ? { ...conv, unread_count: count }
               : conv,
           ),

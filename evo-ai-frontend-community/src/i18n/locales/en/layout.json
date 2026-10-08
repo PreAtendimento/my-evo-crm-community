@@ -24,12 +24,16 @@
       "noAssignee": "NA",
       "noContent": "No content"
     },
+    "push": {
+      "fallbackTitle": "New notification",
+      "bodyWithAssignee": "Assigned to {{name}}"
+    },
     "panel": {
-      "title": "Unread notifications",
+      "title": "Notifications",
       "markAllAsRead": "Mark all as read",
       "loading": "Loading notifications...",
       "emptyTitle": "You're all caught up!",
-      "emptyDescription": "You don't have any unread notifications at the moment.",
+      "emptyDescription": "You don't have any notifications at the moment.",
       "pagination": {
         "separator": " - "
       },
@@ -46,7 +50,8 @@
         "conversation_opened": "Conversation Opened",
         "conversation_closed": "Conversation Closed",
         "message_updated": "Message Updated",
-        "message_deleted": "Message Deleted"
+        "message_deleted": "Message Deleted",
+        "channel_message": "New message via {{channel}}"
       }
     }
   },
@@ -80,10 +85,14 @@
       "conversations": "Conversations",
       "contacts": "Contacts",
       "pipelines": "Pipelines",
+      "products": "Products",
       "agents": "AI Agents",
       "channels": "Channels",
+      "automation": "Automations",
       "tutorials": "Tutorials",
-      "settings": "Settings"
+      "settings": "Settings",
+      "campaigns": "Campaigns",
+      "journeys": "Journeys"
     },
     "contacts": {
       "list": "Contacts",
@@ -96,15 +105,23 @@
     },
     "settings": {
       "account": "Account",
-      "users": "Team Members",
+      "users": "Users",
       "teams": "Teams",
       "labels": "Labels",
       "customAttributes": "Custom Attributes",
       "cannedResponses": "Canned Responses",
+      "aiCredentials": "AI Credentials",
+      "integrationCredentials": "Integration Credentials",
+      "messageTemplates": "Message Templates",
       "macros": "Macros",
+      "templates": "Templates",
       "integrations": "Integrations",
       "accessTokens": "Access Tokens",
-      "admin": "Admin Settings"
+      "roles": "Roles & Permissions",
+      "admin": "Admin Settings",
+      "segments": "Segments",
+      "crmForms": "Lead capture forms",
+      "chatPages": "Chat pages"
     }
   }
 }

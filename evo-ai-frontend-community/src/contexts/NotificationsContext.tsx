@@ -1,9 +1,11 @@
-import React, { createContext, useContext, useReducer, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useReducer, useEffect, useCallback, useMemo, useRef } from 'react';
+import { unixTimestampToIso } from '@/utils/chat/contactTimestamp';
 import type { AxiosError } from 'axios';
-import notificationsService, { Notification } from '@/services/notifications/NotificationsService';
+import notificationsService, { type Notification } from '@/services/notifications/NotificationsService';
 import { useAuth } from '@/contexts/AuthContext';
 import { useGlobalWebSocket } from '@/hooks/useGlobalWebSocket';
 import { playNotificationSound, getAudioSettings } from '@/utils/audioNotificationUtils';
+import i18n from '@/i18n/config';
 
 interface NotificationsMeta {
   count: number;
@@ -40,7 +42,7 @@ type NotificationsAction =
   | { type: 'MARK_ALL_AS_READ' }
   | { type: 'SET_FILTERS'; payload: Record<string, any> };
 
-const initialState: NotificationsState = {
+export const initialState: NotificationsState = {
   notifications: [],
   meta: {
     count: 0,
@@ -58,7 +60,7 @@ const initialState: NotificationsState = {
   notificationFilters: {},
 };
 
-function notificationsReducer(
+export function notificationsReducer(
   state: NotificationsState,
   action: NotificationsAction,
 ): NotificationsState {
@@ -152,29 +154,26 @@ function notificationsReducer(
         },
       };
 
-    case 'MARK_AS_READ':
+    case 'MARK_AS_READ': {
+      const wasUnread = state.notifications.some(n => n.id === action.payload.id && !n.read_at);
       return {
         ...state,
-        notifications: state.notifications.map(notification =>
-          notification.id === action.payload.id
-            ? { ...notification, read_at: action.payload.read_at }
-            : notification,
-        ),
+        notifications: state.notifications.filter(n => n.id !== action.payload.id),
         meta: {
           ...state.meta,
-          unreadCount: Math.max(0, state.meta.unreadCount - 1),
+          count: Math.max(0, state.meta.count - 1),
+          unreadCount: wasUnread ? Math.max(0, state.meta.unreadCount - 1) : state.meta.unreadCount,
         },
       };
+    }
 
     case 'MARK_ALL_AS_READ':
       return {
         ...state,
-        notifications: state.notifications.map(notification => ({
-          ...notification,
-          read_at: notification.read_at || new Date().toISOString(),
-        })),
+        notifications: [],
         meta: {
           ...state.meta,
+          count: 0,
           unreadCount: 0,
         },
       };
@@ -198,10 +197,11 @@ interface NotificationsContextType {
       status?: string;
       type?: string;
     }) => Promise<void>;
-    fetchUnreadCount: () => Promise<void>;
+    fetchUnreadCount: (opts?: { force?: boolean }) => Promise<void>;
     markAsRead: (notification: Notification) => Promise<void>;
     markAsUnread: (id: string) => Promise<void>;
     markAllAsRead: () => Promise<void>;
+    markConversationAsRead: (conversationId: string) => Promise<void>;
     deleteNotification: (id: string) => Promise<void>;
     deleteAllNotifications: (type?: 'all' | 'read') => Promise<void>;
     snoozeNotification: (id: string, snoozedUntil?: string) => Promise<void>;
@@ -228,10 +228,19 @@ interface NotificationsProviderProps {
 const NotificationsProviderInner: React.FC<NotificationsProviderProps> = ({ children }) => {
   const [state, dispatch] = useReducer(notificationsReducer, initialState);
   const { user } = useAuth();
-  const unreadCountRequestInFlightRef = React.useRef(false);
-  const unreadCountBlockedUntilRef = React.useRef(0);
+  const unreadCountRequestInFlightRef = useRef(false);
+  const unreadCountBlockedUntilRef = useRef(0);
 
-  const actions = {
+  // Mirror the latest state on a ref so memoized callbacks can read fresh values
+  // without re-creating themselves on every render. Fixes:
+  //  - HIGH-1: stale `actions` captured by WebSocket handlers with deps=[]
+  //  - HIGH-4: stale `state.meta.unreadCount` inside checkUnreadConversations
+  const stateRef = useRef(state);
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
+
+  const actions = useMemo(() => ({
     fetchNotifications: async (params: { page?: number; status?: string; type?: string } = {}) => {
       dispatch({ type: 'SET_UI_FLAGS', payload: { isFetching: true } });
 
@@ -240,12 +249,21 @@ const NotificationsProviderInner: React.FC<NotificationsProviderProps> = ({ chil
         const notifications = response.data || [];
         const meta = response.meta;
 
+        // CLEAR only after a successful response so a backend error doesn't
+        // wipe existing (e.g. WS-delivered) notifications from the list.
         if (params.page === 1) {
           dispatch({ type: 'CLEAR_NOTIFICATIONS' });
         }
 
         dispatch({ type: 'SET_NOTIFICATIONS', payload: notifications });
-        dispatch({ type: 'SET_META', payload: meta });
+        dispatch({
+          type: 'SET_META',
+          payload: {
+            count: meta?.count ?? 0,
+            unreadCount: meta?.unread_count ?? 0,
+            currentPage: meta?.pagination?.page ?? params.page ?? 1,
+          },
+        });
 
         if (notifications.length < 15) {
           dispatch({ type: 'SET_UI_FLAGS', payload: { isAllNotificationsLoaded: true } });
@@ -257,10 +275,12 @@ const NotificationsProviderInner: React.FC<NotificationsProviderProps> = ({ chil
       }
     },
 
-    fetchUnreadCount: async () => {
+    fetchUnreadCount: async (opts: { force?: boolean } = {}) => {
       const now = Date.now();
       if (unreadCountRequestInFlightRef.current) return;
-      if (unreadCountBlockedUntilRef.current > now) return;
+      // `force: true` bypasses the 401-backoff window so explicit reconciliation
+      // (e.g. after markAllAsRead) is never silently dropped.
+      if (!opts.force && unreadCountBlockedUntilRef.current > now) return;
 
       unreadCountRequestInFlightRef.current = true;
       dispatch({ type: 'SET_UI_FLAGS', payload: { isUpdatingUnreadCount: true } });
@@ -316,11 +336,38 @@ const NotificationsProviderInner: React.FC<NotificationsProviderProps> = ({ chil
       try {
         await notificationsService.markAllAsRead();
         dispatch({ type: 'MARK_ALL_AS_READ' });
+        // Reconcile with server: NotificationBell now refetches on every open,
+        // so make sure the next fetch sees a consistent unread count.
+        // Use `force: true` so a recent 401 backoff window doesn't silently skip this.
+        await actions.fetchUnreadCount({ force: true });
       } catch (error) {
         console.error('Error marking all notifications as read:', error);
         throw error;
       } finally {
         dispatch({ type: 'SET_UI_FLAGS', payload: { isUpdating: false } });
+      }
+    },
+
+    markConversationAsRead: async (conversationId: string) => {
+      // Only call the API when we have the UUID from local state.
+      // The URL may contain a display_id (numeric), and the server's read_all
+      // endpoint marks ALL notifications as read when primary_actor_id doesn't
+      // resolve to a valid Conversation record — never pass an unknown ID.
+      const matching = stateRef.current.notifications.filter(
+        n =>
+          !n.read_at &&
+          (n.primary_actor_id === conversationId ||
+            String(n.primary_actor?.display_id) === conversationId),
+      );
+      if (matching.length === 0) return;
+      try {
+        // One API call is enough — the backend marks all notifications for the conversation
+        await notificationsService.markAsRead('Conversation', matching[0].primary_actor_id);
+        for (const n of matching) {
+          dispatch({ type: 'MARK_AS_READ', payload: { id: n.id, read_at: new Date().toISOString() } });
+        }
+      } catch (error) {
+        console.error('Error marking conversation notification as read:', error);
       }
     },
 
@@ -347,7 +394,7 @@ const NotificationsProviderInner: React.FC<NotificationsProviderProps> = ({ chil
           dispatch({ type: 'SET_UNREAD_COUNT', payload: 0 });
         } else {
           // Remove only read notifications
-          const unreadNotifications = state.notifications.filter(n => !n.read_at);
+          const unreadNotifications = stateRef.current.notifications.filter(n => !n.read_at);
           dispatch({ type: 'SET_NOTIFICATIONS', payload: unreadNotifications });
           dispatch({ type: 'SET_META', payload: { count: unreadNotifications.length } });
         }
@@ -385,9 +432,12 @@ const NotificationsProviderInner: React.FC<NotificationsProviderProps> = ({ chil
     setFilters: (filters: Record<string, any>) => {
       dispatch({ type: 'SET_FILTERS', payload: filters });
     },
-  };
+  }), []);
+  // ^ deps=[] is safe: every read of `state` inside actions goes through stateRef.current,
+  // and dispatch/notificationsService/refs are stable references.
 
-  // Callbacks for WebSocket events (usando useCallback para evitar re-criação)
+  // Callbacks for WebSocket events — deps=[actions] is fine because `actions` is now
+  // memoized with deps=[], so it's stable across renders.
   const handleNotificationCreated = useCallback(
     (data: any) => {
       // Mapear dados do WebSocket para o formato Notification
@@ -402,19 +452,21 @@ const NotificationsProviderInner: React.FC<NotificationsProviderProps> = ({ chil
         primary_actor:
           notificationData.primary_actor ||
           (notificationData.primary_actor_id ? { id: notificationData.primary_actor_id } : null),
+        secondary_actor: notificationData.secondary_actor || null,
         push_message_title:
           notificationData.push_message_title ||
           notificationData.message ||
           notificationData.content ||
           notificationData.title ||
           '',
+        push_message_body: notificationData.push_message_body || '',
         last_activity_at:
-          notificationData.last_activity_at ||
-          notificationData.created_at ||
-          notificationData.updated_at ||
+          unixTimestampToIso(notificationData.last_activity_at) ??
+          unixTimestampToIso(notificationData.created_at) ??
           new Date().toISOString(),
         read_at: notificationData.read_at || null,
         primary_actor_meta: notificationData.primary_actor_meta || null,
+        sender: notificationData.sender || notificationData.secondary_actor?.sender || null,
       };
 
       actions.addNotification(notification);
@@ -452,6 +504,42 @@ const NotificationsProviderInner: React.FC<NotificationsProviderProps> = ({ chil
         return; // Não tocar som nem mostrar notificação se a conversa está aberta
       }
 
+      // Fire browser desktop push notification when permission is granted and tab is inactive
+      if (
+        typeof window !== 'undefined' &&
+        'Notification' in window &&
+        Notification.permission === 'granted' &&
+        document.hidden
+      ) {
+        try {
+          const title = notification.push_message_title || i18n.t('layout:notifications.push.fallbackTitle');
+          const assigneeName = notification.primary_actor_meta?.assignee?.name;
+          const body = assigneeName
+            ? i18n.t('layout:notifications.push.bodyWithAssignee', { name: assigneeName })
+            : undefined;
+          const desktopNotification = new Notification(title, {
+            icon: '/favicon.ico',
+            tag: `notification-${notification.id}`,
+            body,
+          });
+          desktopNotification.onclick = () => {
+            window.focus();
+            desktopNotification.close();
+            if (conversationId) {
+              // SPA navigation: pushState + popstate keeps WebSocket / contexts alive
+              // (vs. window.location.assign which forces a full reload).
+              const target = `/conversations/${conversationId}`;
+              if (window.location.pathname !== target) {
+                window.history.pushState({}, '', target);
+                window.dispatchEvent(new PopStateEvent('popstate'));
+              }
+            }
+          };
+        } catch {
+          // Browser may block Notification constructor in certain contexts
+        }
+      }
+
       // Play notification sound if enabled
       const audioSettings = getAudioSettings();
 
@@ -476,34 +564,55 @@ const NotificationsProviderInner: React.FC<NotificationsProviderProps> = ({ chil
           if (isAssignedConversationNotification) {
             return true;
           }
-          // For other notification types, check if there are unread notifications
-          // Note: This is a simplified check - ideally we'd check specifically for assigned conversations
-          const hasUnread = state.meta.unreadCount > 0;
+          // Read unreadCount from the ref so back-to-back WebSocket events
+          // (which fire faster than React re-renders) see the freshest value.
+          const hasUnread = stateRef.current.meta.unreadCount > 0;
           return hasUnread;
         };
 
-        // Use setTimeout to ensure state is updated before checking
-        setTimeout(() => {
-          playNotificationSound(audioSettings, checkUnreadConversations).catch(error => {
-            console.error('❌ Error playing notification sound:', error);
-          });
-        }, 100);
+        playNotificationSound(audioSettings, checkUnreadConversations).catch(error => {
+          console.error('❌ Error playing notification sound:', error);
+        });
       }
     },
-    [state.meta.unreadCount, actions],
+    [actions],
   );
 
   const handleNotificationDeleted = useCallback((data: any) => {
     if (data.id) {
       actions.deleteNotification(data.id);
     }
-  }, []);
+  }, [actions]);
 
   const handleNotificationUpdated = useCallback((data: any) => {
-    if (data.id) {
-      actions.updateNotification(data.id, data);
+    if (!data.id) return;
+    // Only forward the fields an "updated" event actually changes. Spreading the
+    // raw payload could clobber a rich primary_actor already in state (contact,
+    // display_id, channel) with a shallow {id} from the WS message.
+    const normalized: Partial<Notification> = {};
+    if (data.last_activity_at !== undefined) {
+      normalized.last_activity_at =
+        unixTimestampToIso(data.last_activity_at) ?? data.last_activity_at;
     }
-  }, []);
+    // read_at: WS currently sends a datetime string, but normalize defensively in
+    // case the backend switches to a Unix int (like created_at) for consistency.
+    if (data.read_at !== undefined) {
+      normalized.read_at =
+        typeof data.read_at === 'number'
+          ? (data.read_at ? new Date(data.read_at * 1000).toISOString() : null)
+          : data.read_at;
+    }
+    if (data.sender) {
+      normalized.sender = data.sender;
+    }
+    if (data.push_message_body !== undefined) {
+      normalized.push_message_body = data.push_message_body;
+    }
+    if (data.push_message_title !== undefined) {
+      normalized.push_message_title = data.push_message_title;
+    }
+    actions.updateNotification(data.id, normalized);
+  }, [actions]);
 
   // Initialize global WebSocket connection for real-time notifications and messages
   const { isConnected } = useGlobalWebSocket({

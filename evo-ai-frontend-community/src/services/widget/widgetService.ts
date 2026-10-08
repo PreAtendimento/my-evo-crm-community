@@ -231,7 +231,9 @@ class WidgetService {
 
       const locale = this.normalizeWidgetLocale(websiteConfig.locale);
       if (locale && i18n.language !== locale) {
-        await i18n.changeLanguage(locale).catch(() => undefined);
+        await i18n.changeLanguage(locale).catch((err) => {
+          console.error('[Widget] Failed to change language:', err);
+        });
       }
 
       return {
@@ -589,6 +591,31 @@ class WidgetService {
           },
         }
       )
+    );
+    return extractData<any>(response);
+  }
+
+  async updateMessageSubmittedValues(
+    websiteToken: string,
+    messageId: string | number,
+    submittedValues: { name: string; title: string; value: string },
+  ) {
+    const response = await this.requestWithBaseFallback((client) =>
+      client.patch(
+        `/widget/messages/${messageId}`,
+        {
+          message: {
+            submitted_values: submittedValues,
+          },
+        },
+        {
+          params: { website_token: websiteToken },
+          headers: {
+            ...this.getAuthHeader(websiteToken),
+            'Content-Type': 'application/json',
+          },
+        },
+      ),
     );
     return extractData<any>(response);
   }

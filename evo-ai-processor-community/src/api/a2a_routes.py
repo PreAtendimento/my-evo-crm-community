@@ -76,6 +76,8 @@ from src.schemas.chat import FileData
 from src.schemas.responses import ErrorResponse
 from src.utils.logger import setup_logger
 from src.utils.response import error_response, map_status_to_error_code, success_response
+from src.utils.client_disconnect import ClientGoneAway, run_unless_client_disconnects
+from src.utils.provider_errors import classify_provider_error, log_provider_failure, redact_secrets
 from src.services.tools_service import tools_service
 from src.services.mcp_server_service import get_mcp_server
 from src.middleware.permissions import RequirePermission
@@ -355,6 +357,7 @@ def create_task_response(
     task_id: str,
     context_id: str,
     final_response: str,
+    artifacts: Optional[List[Dict[str, Any]]] = None,
     conversation_history: Optional[List[Dict[str, Any]]] = None,
     current_user_message: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
@@ -365,7 +368,7 @@ def create_task_response(
     )
 
     # Create main response artifact (only the agent's response)
-    artifacts = [
+    artifacts = artifacts or [
         {
             "artifactId": str(uuid.uuid4()),
             "parts": [{"type": "text", "text": final_response}],
@@ -523,6 +526,8 @@ async def extract_conversation_history(
                     if isinstance(part, dict) and part.get("text"):
                         role = "user" if event_dict.get("author") == "user" else "agent"
                         text_content = part["text"]
+                        if isinstance(text_content, str) and text_content.startswith(STRUCTURED_PART_PREFIX):
+                            continue
 
                         # Clean the content to remove JSON artifacts
                         cleaned_content = clean_message_content(text_content, role)
@@ -781,6 +786,75 @@ def extract_metadata_from_request(params: Dict[str, Any]) -> Dict[str, Any]:
     return metadata
 
 
+STRUCTURED_PART_PREFIX = "EVO_STRUCTURED:"
+
+
+def extract_structured_from_message_history(
+    message_history: Optional[List[Dict[str, Any]]],
+) -> Optional[Dict[str, Any]]:
+    if not message_history:
+        return None
+
+    for event in reversed(message_history):
+        content = event.get("content") if isinstance(event, dict) else None
+        parts = content.get("parts") if isinstance(content, dict) else None
+        if not isinstance(parts, list):
+            continue
+
+        for part in parts:
+            if not isinstance(part, dict):
+                continue
+
+            text = part.get("text")
+            if not isinstance(text, str) or not text.startswith(STRUCTURED_PART_PREFIX):
+                continue
+
+            raw = text[len(STRUCTURED_PART_PREFIX):].strip()
+            try:
+                decoded = json.loads(raw)
+                return decoded if isinstance(decoded, dict) else None
+            except Exception:
+                continue
+
+    return None
+
+
+def build_a2a_artifacts(
+    final_response: str,
+    structured: Optional[Dict[str, Any]] = None,
+) -> List[Dict[str, Any]]:
+    artifacts: List[Dict[str, Any]] = [
+        {
+            "artifactId": str(uuid.uuid4()),
+            "parts": [{"type": "text", "text": final_response}],
+        }
+    ]
+
+    if not structured:
+        return artifacts
+
+    input_obj = structured.get("input") if isinstance(structured, dict) else None
+    if not isinstance(input_obj, dict):
+        return artifacts
+
+    if input_obj.get("type") == "select" and isinstance(input_obj.get("items"), list):
+        artifacts.append(
+            {
+                "artifactId": str(uuid.uuid4()),
+                "parts": [
+                    {
+                        "type": "select",
+                        "items": input_obj.get("items", []),
+                        "isMultiple": bool(input_obj.get("isMultiple")),
+                        "sourceType": input_obj.get("sourceType"),
+                    }
+                ],
+            }
+        )
+
+    return artifacts
+
+
 async def handle_message_send(
     agent_id: uuid.UUID, params: Dict[str, Any], request_id: str, request: Request, db: Session
 ) -> JSONResponse:
@@ -973,18 +1047,24 @@ async def handle_message_send(
         session_id = f"{context_id}_{agent_id}"
         logger.info(f"📋 Using session_id: {session_id}")
 
-        result = await run_agent(
-            agent_id=str(agent_id),
-            external_id=context_id,  # contextId is the conversation UUID
-            message=text,  # Send only the original message - ADK handles context
-            session_service=session_service,
-            artifacts_service=artifacts_service,
-            memory_service=memory_service,
-            db=db,
-            session_id=session_id,  # Use explicit session_id with agent_id from URL
-            files=files if files else None,
-            metadata=metadata,
-            user_id=user_id,  # Pass contact_id as user_id
+        # CRM-236: bounded by whoever is waiting. When the caller hangs up the
+        # run is cancelled instead of burning more of the provider's quota.
+        result = await run_unless_client_disconnects(
+            request,
+            run_agent(
+                agent_id=str(agent_id),
+                external_id=context_id,  # contextId is the conversation UUID
+                message=text,  # Send only the original message - ADK handles context
+                session_service=session_service,
+                artifacts_service=artifacts_service,
+                memory_service=memory_service,
+                db=db,
+                session_id=session_id,  # Use explicit session_id with agent_id from URL
+                files=files if files else None,
+                metadata=metadata,
+                user_id=user_id,  # Pass contact_id as user_id
+            ),
+            label=f"agent {agent_id} execution",
         )
 
         final_response = result.get("final_response", "No response")
@@ -1002,11 +1082,15 @@ async def handle_message_send(
             "timestamp": None,  # Could add current timestamp
         }
 
+        structured = extract_structured_from_message_history(result.get("message_history"))
+        artifacts = build_a2a_artifacts(final_response, structured)
+
         # Create A2A compliant response with history
         task_response = create_task_response(
             task_id,
             context_id,
             final_response,
+            artifacts,
             combined_history if combined_history else None,
             current_user_message,
         )
@@ -1028,8 +1112,57 @@ async def handle_message_send(
             content={"jsonrpc": "2.0", "id": request_id, "result": task_response}
         )
 
+    except ClientGoneAway as e:
+        # Nobody is waiting for this response — it is logged for the operator
+        # and returned only because the handler must return something.
+        logger.warning(f"⛔ {e}")
+        return error_response(
+            request=request,
+            # 499 is nginx's convention for "caller hung up"; no RFC status
+            # exists, so fastapi.status has no constant to use here.
+            code=map_status_to_error_code(499),
+            message="Client closed the request before the agent finished",
+            status_code=499,
+            details={
+                "jsonrpc": "2.0",
+                "id": request_id,
+                "error": {
+                    "code": -32000,
+                    "message": "Client closed the request before the agent finished",
+                    "data": {"error": str(e)},
+                },
+            },
+        )
+
     except Exception as e:
-        logger.error(f"❌ Agent execution error: {e}")
+        # CRM-236: a quota exhaustion and a bug of ours both answered "500 Agent
+        # execution failed". Report the provider's condition when we recognise it.
+        provider_failure = classify_provider_error(e)
+        if provider_failure is not None:
+            log_provider_failure(provider_failure, agent_id)
+            return error_response(
+                request=request,
+                code=map_status_to_error_code(provider_failure.http_status),
+                message=provider_failure.message,
+                status_code=provider_failure.http_status,
+                details={
+                    "jsonrpc": "2.0",
+                    "id": request_id,
+                    "error": {
+                        "code": provider_failure.jsonrpc_code,
+                        "message": provider_failure.message,
+                        "data": {
+                            "kind": provider_failure.kind,
+                            "error": provider_failure.detail,
+                        },
+                    },
+                },
+            )
+
+        # Classification is conservative, so this fallback is the common path —
+        # and the one most likely to carry a credential (`?key=AIza…`).
+        safe = redact_secrets(str(e))
+        logger.error(f"❌ Agent execution error: {safe}")
         return error_response(
             request=request,
             code=map_status_to_error_code(status.HTTP_500_INTERNAL_SERVER_ERROR),
@@ -1041,7 +1174,7 @@ async def handle_message_send(
                 "error": {
                     "code": -32603,
                     "message": "Agent execution failed",
-                    "data": {"error": str(e)},
+                    "data": {"error": safe},
                 },
             }
         )
@@ -1052,7 +1185,7 @@ async def handle_message_send(
                 "error": {
                     "code": -32603,
                     "message": "Agent execution failed",
-                    "data": {"error": str(e)},
+                    "data": {"error": safe},
                 },
             }
         )
@@ -1164,16 +1297,37 @@ async def handle_message_stream(
             yield {"data": json.dumps(final_event)}
 
         except Exception as e:
-            logger.error(f"❌ Streaming error: {e}")
-            error_event = {
-                "jsonrpc": "2.0",
-                "id": request_id,
-                "error": {
-                    "code": -32603,
-                    "message": "Streaming failed",
-                    "data": {"error": str(e)},
-                },
-            }
+            # No disconnect guard here on purpose: sse-starlette already runs
+            # _listen_for_disconnect inside cancel_on_finish, which cancels the
+            # task group consuming this generator. A second consumer on the same
+            # receive channel would steal the message the first waits for.
+            provider_failure = classify_provider_error(e)
+            if provider_failure is not None:
+                log_provider_failure(provider_failure, agent_id)
+                error_event = {
+                    "jsonrpc": "2.0",
+                    "id": request_id,
+                    "error": {
+                        "code": provider_failure.jsonrpc_code,
+                        "message": provider_failure.message,
+                        "data": {
+                            "kind": provider_failure.kind,
+                            "error": provider_failure.detail,
+                        },
+                    },
+                }
+            else:
+                safe_stream_error = redact_secrets(str(e))
+                logger.error(f"❌ Streaming error: {safe_stream_error}")
+                error_event = {
+                    "jsonrpc": "2.0",
+                    "id": request_id,
+                    "error": {
+                        "code": -32603,
+                        "message": "Streaming failed",
+                        "data": {"error": safe_stream_error},
+                    },
+                }
             yield {"data": json.dumps(error_event)}
 
     return EventSourceResponse(stream_generator())

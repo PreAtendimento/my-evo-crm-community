@@ -1,20 +1,28 @@
 import { ChannelType } from '@/types/channels/providers';
 import i18n from '@/i18n/config';
 
-// Function to get channel types with translations
+// Function to get channel types with translations.
+//
+// Order follows the Channels overview reference design (EVO-2092): the branded
+// social/marketing channels first, then the functional Web Widget and API cards
+// appended at the end.
 export const getChannelTypes = (): ChannelType[] => [
   {
-    id: 'website',
-    name: i18n.t('channels:newChannel.channelTypes.website.name'),
-    description: i18n.t('channels:newChannel.channelTypes.website.description'),
-    icon: '/src/assets/channels/website.png',
-    type: 'web_widget',
+    id: 'instagram',
+    name: i18n.t('channels:newChannel.channelTypes.instagram.name'),
+    description: i18n.t('channels:newChannel.channelTypes.instagram.description'),
+    type: 'instagram',
+  },
+  {
+    id: 'facebook',
+    name: i18n.t('channels:newChannel.channelTypes.facebook.name'),
+    description: i18n.t('channels:newChannel.channelTypes.facebook.description'),
+    type: 'facebook',
   },
   {
     id: 'whatsapp',
     name: i18n.t('channels:newChannel.channelTypes.whatsapp.name'),
     description: i18n.t('channels:newChannel.channelTypes.whatsapp.description'),
-    icon: '/src/assets/channels/whatsapp.png',
     type: 'whatsapp',
     providers: [
       {
@@ -53,52 +61,9 @@ export const getChannelTypes = (): ChannelType[] => [
     ],
   },
   {
-    id: 'instagram',
-    name: i18n.t('channels:newChannel.channelTypes.instagram.name'),
-    description: i18n.t('channels:newChannel.channelTypes.instagram.description'),
-    icon: '/src/assets/channels/instagram.png',
-    type: 'instagram',
-  },
-  {
-    id: 'facebook',
-    name: i18n.t('channels:newChannel.channelTypes.facebook.name'),
-    description: i18n.t('channels:newChannel.channelTypes.facebook.description'),
-    icon: '/src/assets/channels/facebook.png',
-    type: 'facebook',
-  },
-  {
-    id: 'telegram',
-    name: i18n.t('channels:newChannel.channelTypes.telegram.name'),
-    description: i18n.t('channels:newChannel.channelTypes.telegram.description'),
-    icon: '/src/assets/channels/telegram.png',
-    type: 'telegram',
-  },
-  {
-    id: 'sms',
-    name: i18n.t('channels:newChannel.channelTypes.sms.name'),
-    description: i18n.t('channels:newChannel.channelTypes.sms.description'),
-    icon: '/src/assets/channels/sms.png',
-    type: 'sms',
-    providers: [
-      {
-        id: 'twilio',
-        name: i18n.t('channels:newChannel.providers.twilioSms.name'),
-        description: i18n.t('channels:newChannel.providers.twilioSms.description'),
-        recommended: true,
-      },
-      {
-        id: 'bandwidth',
-        name: i18n.t('channels:newChannel.providers.bandwidth.name'),
-        description: i18n.t('channels:newChannel.providers.bandwidth.description'),
-        popular: false,
-      },
-    ],
-  },
-  {
     id: 'email',
     name: i18n.t('channels:newChannel.channelTypes.email.name'),
     description: i18n.t('channels:newChannel.channelTypes.email.description'),
-    icon: '/src/assets/channels/email.png',
     type: 'email',
     providers: [
       {
@@ -122,10 +87,40 @@ export const getChannelTypes = (): ChannelType[] => [
     ],
   },
   {
+    id: 'sms',
+    name: i18n.t('channels:newChannel.channelTypes.sms.name'),
+    description: i18n.t('channels:newChannel.channelTypes.sms.description'),
+    type: 'sms',
+    providers: [
+      {
+        id: 'twilio',
+        name: i18n.t('channels:newChannel.providers.twilioSms.name'),
+        description: i18n.t('channels:newChannel.providers.twilioSms.description'),
+      },
+      {
+        id: 'bandwidth',
+        name: i18n.t('channels:newChannel.providers.bandwidth.name'),
+        description: i18n.t('channels:newChannel.providers.bandwidth.description'),
+        recommended: true,
+      },
+    ],
+  },
+  {
+    id: 'telegram',
+    name: i18n.t('channels:newChannel.channelTypes.telegram.name'),
+    description: i18n.t('channels:newChannel.channelTypes.telegram.description'),
+    type: 'telegram',
+  },
+  {
+    id: 'website',
+    name: i18n.t('channels:newChannel.channelTypes.website.name'),
+    description: i18n.t('channels:newChannel.channelTypes.website.description'),
+    type: 'web_widget',
+  },
+  {
     id: 'api',
     name: i18n.t('channels:newChannel.channelTypes.api.name'),
     description: i18n.t('channels:newChannel.channelTypes.api.description'),
-    icon: '/src/assets/channels/api.png',
     type: 'api',
   },
 ];

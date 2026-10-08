@@ -38,8 +38,21 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# Committed onto a malformed agent coerced to llm, so a retired id here lands in
+# the customer's data. Prefixed for LiteLLM; mirrors defaultRepairModel in core-service.
+DEFAULT_REPAIR_MODEL = "openai/gpt-5.6-luna"
 
-# Helper function to generate API keys
+
+class AgentValidationError(Exception):
+    """Raised when agent API key validation cannot be completed due to an
+    infrastructure error (DB down, dead pooled connection, timeout) — NOT an
+    invalid key. Callers MUST map this to a 5xx (retryable), never to a 401.
+
+    EVO-2166: a transient DB blip used to be swallowed into {"valid": False},
+    which the auth middleware turned into a silent, non-retryable 401 — the
+    customer's message was dropped with no signal that it was transient.
+    """
+
 def generate_api_key() -> str:
     """Generate a secure API key"""
     # Format: sk-proj-{random 64 chars}
@@ -62,16 +75,27 @@ def _convert_uuid_to_str(obj):
         return obj
 
 
-async def _reconstruct_custom_configurations(db: Session, agent: Agent) -> None:
-    """Reconstruct custom tool and MCP server configurations from saved IDs"""
+def _reconstruct_custom_configurations(db: Session, agent: Agent) -> None:
+    """Expand the saved custom tool / MCP server IDs into the agent config.
+
+    Synchronous: every lookup below is a sync ORM query, and get_agents_by_account
+    (a sync function) calls this — as a coroutine it was never awaited there, so
+    agents listed by account silently kept their tools unexpanded.
+
+    In-memory only: the expansion hydrates the config that is handed to the API
+    response and to the builders, and is never written back. Persisting it would
+    freeze a copy of the tool (endpoint, headers, values) inside the agent, and
+    the guards below — which skip the expansion once http_tools is populated —
+    would then keep serving that copy forever, so editing or deleting the tool in
+    the catalog would never reach the agent.
+    """
     if not agent.config or not isinstance(agent.config, dict):
         return
 
     config = agent.config
-    reconstructed = False
 
-    # Only reconstruct if we have IDs but no corresponding configurations
-    # This prevents reconstruction during config processing and only does it during agent retrieval
+    # Only expand if we have IDs but no corresponding configurations
+    # This prevents expansion during config processing and only does it during agent retrieval
 
     # Reconstruct custom tools from IDs
     if (
@@ -87,19 +111,17 @@ async def _reconstruct_custom_configurations(db: Session, agent: Agent) -> None:
             tool_ids = [
                 uuid.UUID(str(tool_id)) for tool_id in config["custom_tool_ids"]
             ]
-            custom_tools_from_ids = await custom_tool_service.get_custom_tools(
-            )
-
-            # Filter by IDs
-            filtered_tools = [
-                tool for tool in custom_tools_from_ids if tool.id in tool_ids
-            ]
 
             # Convert to HTTPTool format
             http_tools = []
-            for tool in filtered_tools:
-                http_tool = custom_tool_service.convert_to_http_tool(tool)
-                http_tools.append(http_tool)
+            for tool_id in tool_ids:
+                tool = custom_tool_service.get_custom_tool(db, tool_id)
+                if not tool:
+                    logger.warning(
+                        f"Custom tool not found: {tool_id} (agent {agent.id})"
+                    )
+                    continue
+                http_tools.append(custom_tool_service.convert_to_http_tool(tool))
 
             # Update config with reconstructed tools
             if "custom_tools" not in config:
@@ -111,7 +133,6 @@ async def _reconstruct_custom_configurations(db: Session, agent: Agent) -> None:
 
             # Replace existing http_tools with reconstructed ones
             config["custom_tools"]["http_tools"] = http_tools
-            reconstructed = True
 
             logger.debug(
                 f"Reconstructed {len(http_tools)} custom tools for agent {agent.id}"
@@ -145,7 +166,6 @@ async def _reconstruct_custom_configurations(db: Session, agent: Agent) -> None:
 
             # Replace existing custom_mcp_servers with reconstructed ones
             config["custom_mcp_servers"] = custom_servers_from_ids
-            reconstructed = True
 
             logger.debug(
                 f"Reconstructed {len(custom_servers_from_ids)} custom MCP servers for agent {agent.id}"
@@ -156,17 +176,6 @@ async def _reconstruct_custom_configurations(db: Session, agent: Agent) -> None:
                 f"Error reconstructing custom MCP servers for agent {agent.id}: {str(e)}"
             )
 
-    # Save changes if any reconstruction happened
-    if reconstructed:
-        try:
-            agent.config = config
-            db.commit()
-            logger.debug(f"Saved reconstructed configurations for agent {agent.id}")
-        except Exception as e:
-            db.rollback()
-            logger.error(
-                f"Error saving reconstructed configurations for agent {agent.id}: {str(e)}"
-            )
 
 async def validate_agent_api_key(db: Session, agent_id: Union[uuid.UUID, str], api_key: str) -> Optional[dict]:
     """
@@ -233,9 +242,22 @@ async def validate_agent_api_key(db: Session, agent_id: Union[uuid.UUID, str], a
             "agent_name": agent.name
         }
 
+    except SQLAlchemyError as e:
+        # EVO-2166: infrastructure error (dead pooled connection, DB down/timeout)
+        # is NOT an authentication decision. Surface it as a retryable 5xx instead
+        # of a silent 401 by raising rather than returning {"valid": False}.
+        logger.error(f"Infra error validating API key for agent {agent_id}: {str(e)}")
+        raise AgentValidationError(str(e)) from e
     except Exception as e:
-        logger.error(f"Error validating API key for agent {agent_id}: {str(e)}")
-        return {"valid": False, "agent_id": str(agent_id), "agent_name": None}
+        # Any other unexpected failure is likewise "could not determine", not
+        # "invalid key" -> treat as infrastructure (5xx), never a 401. This
+        # branch also swallows genuine code bugs into a "retryable" 5xx, so log
+        # the traceback (exc_info) to keep such bugs diagnosable.
+        logger.error(
+            f"Unexpected error validating API key for agent {agent_id}: {str(e)}",
+            exc_info=True,
+        )
+        raise AgentValidationError(str(e)) from e
 
 
 async def get_agent_integrations(db: Session, agent_id: Union[uuid.UUID, str]) -> List[Dict[str, Any]]:
@@ -381,7 +403,7 @@ async def get_agent(db: Session, agent_id: Union[uuid.UUID, str]) -> Optional[Ag
             return None
 
         # Reconstruct custom configurations from saved IDs
-        await _reconstruct_custom_configurations(db, agent)
+        _reconstruct_custom_configurations(db, agent)
 
         # Sanitize agent name if it contains spaces or special characters
         if agent.name and any(c for c in agent.name if not (c.isalnum() or c == "_")):
@@ -406,7 +428,7 @@ async def get_agent(db: Session, agent_id: Union[uuid.UUID, str]) -> Optional[Ag
 
                 # Set a default model if not present
                 if not agent.model:
-                    agent.model = "gpt-4.1-nano"
+                    agent.model = DEFAULT_REPAIR_MODEL
 
                 # Convert config to basic LLM config structure
                 if not isinstance(agent.config, dict):
@@ -512,7 +534,7 @@ def get_agents_by_account(
 
                     # Set a default model if not present
                     if not agent.model:
-                        agent.model = "gpt-4.1-nano"
+                        agent.model = DEFAULT_REPAIR_MODEL
 
                     # Convert config to basic LLM config structure
                     if not isinstance(agent.config, dict):

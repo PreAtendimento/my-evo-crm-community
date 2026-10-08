@@ -19,7 +19,10 @@ module PipelineSerializer
   #
   # @return [Hash] Serialized pipeline ready for Oj
   #
-  def serialize(pipeline, include_stages: false, include_items: false, include_tasks_info: false, include_services_info: false)
+  def serialize(pipeline, include_stages: false, include_items: false,
+                include_tasks_info: false, include_services_info: false,
+                include_labels: false, labels_by_title: nil, labels_by_id: nil,
+                task_counts_by_item: nil)
     result = {
       id: pipeline.id,
       name: pipeline.name,
@@ -27,6 +30,9 @@ module PipelineSerializer
       description: pipeline.description,
       pipeline_type: pipeline.pipeline_type,
       visibility: pipeline.visibility,
+      # Reads the join (preloaded by the list endpoints) rather than `team_ids`, which
+      # would join through `teams` for a column already sitting here.
+      team_ids: pipeline.pipeline_teams.map(&:team_id),
       is_active: pipeline.is_active,
       is_default: pipeline.is_default,
       custom_fields: pipeline.custom_fields || {},
@@ -43,13 +49,35 @@ module PipelineSerializer
       
       # If items are also included, attach them directly to each stage
       if include_items && pipeline.association(:pipeline_items).loaded?
-        # Serialize all items with full details
-        serialized_items = pipeline.pipeline_items.map do |item|
+        # Build label indexes once for the entire pipeline if labels are requested
+        # but no pre-built indexes were provided. Caller can override by passing
+        # labels_by_title / labels_by_id to avoid the Label.all query when batching.
+        if include_labels && (labels_by_title.nil? || labels_by_id.nil?)
+          all_labels = Label.all.to_a
+          labels_by_title ||= all_labels.index_by { |label| label.title.to_s.downcase }
+          labels_by_id ||= all_labels.index_by { |label| label.id.to_s }
+        end
+
+        # Serialize only active items (completed journeys are accessible via pipeline_items endpoint with status=completed)
+        active_items = pipeline.pipeline_items.select { |item| item.completed_at.nil? }
+
+        # Batch task counts once for this pipeline's active items to avoid the
+        # 5-COUNT-per-item N+1 inside PipelineItemSerializer. Caller can override
+        # by passing task_counts_by_item (e.g. to batch across multiple pipelines).
+        item_task_counts = if include_tasks_info
+                             task_counts_by_item || PipelineItemSerializer.task_counts_for(active_items)
+                           end
+
+        serialized_items = active_items.map do |item|
           PipelineItemSerializer.serialize(
             item,
             include_entity: true,
             include_tasks_info: include_tasks_info,
-            include_services_info: include_services_info
+            include_services_info: include_services_info,
+            include_labels: include_labels,
+            labels_by_title: labels_by_title,
+            labels_by_id: labels_by_id,
+            task_counts_by_item: item_task_counts
           )
         end
 
@@ -69,6 +97,21 @@ module PipelineSerializer
           PipelineStageSerializer.serialize(stage, include_item_count: true)
         end
       end
+    end
+
+    # Pipeline-level services_info (Valor Total do funil). The list screen and the
+    # board header both read services_info.total_value / formatted_total per pipeline;
+    # without this block the frontend always shows R$ 0,00. Mirrors the per-item
+    # services_info shape (PipelineItemSerializer) but aggregated over the whole
+    # pipeline via Pipeline#total_value. Preloaded pipeline_items keep this N+1-free.
+    if include_services_info
+      total_value = pipeline.total_value
+      result[:services_info] = {
+        total_value: total_value,
+        currency: 'BRL',
+        formatted_total: format('%.2f', total_value).tr('.', ','),
+        has_services: total_value.positive?
+      }
     end
 
     result

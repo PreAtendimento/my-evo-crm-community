@@ -63,6 +63,8 @@ module Filters::FilterHelper
       tag_filter_query(query_hash, current_index)
     when 'pipeline'
       pipeline_filter_query(query_hash, current_index)
+    when 'company'
+      company_filter_query(query_hash, current_index)
     when 'text_case_insensitive'
       text_case_insensitive_filter(query_hash, filter_operator_value)
     else
@@ -107,7 +109,16 @@ module Filters::FilterHelper
     values.map { |x| Conversation.priorities[x.to_sym] }
   end
 
+  # Accepts either the enum key ("incoming") or the integer/string value ("0", 0)
+  # — the automation UI currently saves the numeric value while older callers
+  # may still send the enum key.
   def message_type_values(values)
-    values.map { |x| Message.message_types[x.to_sym] }
+    values.map do |x|
+      raw = x.to_s
+      next Message.message_types[raw.to_sym] if Message.message_types.key?(raw)
+      next raw.to_i if raw.match?(/\A\d+\z/) && Message.message_types.value?(raw.to_i)
+
+      nil
+    end.compact
   end
 end

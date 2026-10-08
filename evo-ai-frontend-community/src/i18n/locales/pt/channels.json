@@ -30,6 +30,7 @@
   "permissions": {
     "viewDenied": "Você não tem permissão para visualizar canais",
     "createDenied": "Você não tem permissão para criar canais",
+    "updateDenied": "Você não tem permissão para atualizar canais",
     "deleteDenied": "Você não tem permissão para excluir canais"
   },
   "errors": {
@@ -132,27 +133,27 @@
       },
       "whatsapp": {
         "name": "WhatsApp",
-        "description": "Canal do WhatsApp para atendimento ao cliente"
+        "description": "WhatsApp Business"
       },
       "telegram": {
         "name": "Telegram",
-        "description": "Bot do Telegram para suporte automatizado"
+        "description": "Bot de atendimento"
       },
       "instagram": {
         "name": "Instagram",
-        "description": "Mensagens diretas do Instagram"
+        "description": "Perfil profissional"
       },
       "facebook": {
-        "name": "Facebook Messenger",
-        "description": "Chat do Facebook Messenger"
+        "name": "Facebook",
+        "description": "Página"
       },
       "sms": {
         "name": "SMS",
-        "description": "Mensagens de texto SMS"
+        "description": "Mensagens de texto"
       },
       "email": {
         "name": "Email",
-        "description": "Suporte por email"
+        "description": "Marketing e atendimento"
       },
       "api": {
         "name": "API",
@@ -186,7 +187,8 @@
       },
       "twilio": {
         "name": "Twilio",
-        "description": "Twilio WhatsApp Business API"
+        "description": "Twilio WhatsApp Business API",
+        "comingSoon": "Em breve"
       },
       "twilioSms": {
         "name": "Twilio SMS",
@@ -239,9 +241,22 @@
       "connectDescription": "Conecte a oferecer suporte a seus clientes pelo {{channelName}}",
       "apiProvider": "Provedor de API",
       "facebookIntegrationDescription": "Conecte sua conta do Facebook para preencher automaticamente as informações do WhatsApp Business"
+    },
+    "fields": {
+      "displayName": {
+        "label": "Nome de Exibição",
+        "placeholder": "ex.: Equipe de Suporte",
+        "helpText": "Nome amigável exibido para sua equipe."
+      },
+      "channelName": {
+        "label": "Nome do Canal",
+        "placeholder": "gerado automaticamente",
+        "helpText": "Gerado automaticamente a partir do nome de exibição."
+      }
     }
   },
   "settings": {
+    "updateConfig": "Atualizar Configurações",
     "loading": "Carregando configurações...",
     "saving": "Salvando...",
     "save": "Salvar",
@@ -257,6 +272,9 @@
         "lastConnection": "Última conexão: {{date}}",
         "reconnect": "Reconectar",
         "reconnected": "Reconectado com sucesso!",
+        "syncSubscription": "Re-subscrever webhook",
+        "subscriptionSynced": "Webhook do WhatsApp re-subscrito com sucesso!",
+        "subscriptionSyncError": "Erro ao re-subscrever webhook. Tente novamente.",
         "reconnectingWhatsApp": "Reconectando WhatsApp...",
         "whatsappReconnectNotImplemented": "A reconexão do WhatsApp ainda não está implementada para este provedor",
         "reconnectError": "Erro ao reconectar. Tente novamente.",
@@ -430,6 +448,16 @@
         "label": "Mensagem de Indisponibilidade",
         "placeholder": "Desculpe, estamos fora do horário de funcionamento...",
         "help": "Esta mensagem será enviada quando estiver fora do horário"
+      },
+      "useTemplate": {
+        "label": "Usar template global",
+        "description": "Enviar um template de mensagem global em vez de texto livre"
+      },
+      "template": {
+        "label": "Template",
+        "placeholder": "Selecione um template global",
+        "empty": "Nenhum template global disponível",
+        "help": "Gerencie templates globais em Configurações → Templates de Mensagem"
       },
       "timezone": {
         "label": "Fuso Horário",
@@ -629,6 +657,8 @@
         "templateType": "Tipo de Template",
         "templateTypes": {
           "text": "Texto",
+          "interactive": "Interativo",
+          "media": "Mídia",
           "image": "Imagem",
           "video": "Vídeo",
           "document": "Documento",
@@ -656,6 +686,10 @@
         "footerText": "Texto do Rodapé",
         "footerTextPlaceholder": "Digite o texto do rodapé (opcional)",
         "variablesHelp": "Use a sintaxe {{variavel}} para valores dinâmicos",
+        "variables": "Variáveis",
+        "variableLabel": "Rótulo",
+        "variableExample": "Exemplo",
+        "variableSource": "Origem, ex.: contact.name",
         "buttons": "Botões",
         "addButton": "Adicionar Botão",
         "buttonTypes": {
@@ -709,11 +743,12 @@
       },
       "status": {
         "approved": "Aprovado",
-        "pending": "Pendente",
+        "pending": "A aguardar aprovação",
         "rejected": "Rejeitado",
         "paused": "Pausado",
         "active": "Ativo",
-        "inactive": "Inativo"
+        "inactive": "Inativo",
+        "unknown": "Estado desconhecido"
       },
       "preview": {
         "title": "Visualização",
@@ -842,7 +877,10 @@
           "callRejectionMessage": "Mensagem de rejeição de chamada",
           "callRejectionPlaceholder": "Mensagem quando rejeitar chamadas",
           "saveSettings": "Salvar Configurações",
+          "loading": "A carregar configurações da instância...",
           "errors": {
+            "title": "Erro de Configuração",
+            "loadFailed": "Falha ao carregar estado da instância. Verifique as configurações de conexão.",
             "nameNotFound": "Nome da instância não encontrado",
             "qrCodeError": "Erro ao gerar QR Code",
             "updateError": "Erro ao atualizar configurações da instância"
@@ -904,6 +942,26 @@
             "errors": {
               "loadError": "Erro ao carregar configurações de privacidade",
               "updateError": "Erro ao atualizar {{setting}}"
+            }
+          },
+          "connection": {
+            "title": "Configurações de Conexão",
+            "description": "Altere a URL Base e a API Key da instância após a criação do canal",
+            "apiUrlLabel": "URL Base",
+            "apiUrlPlaceholder": "https://api.evolution.com",
+            "adminTokenLabel": "API Key",
+            "adminTokenPlaceholder": "Insira a nova API Key",
+            "usingGlobalConfig": "A utilizar configurações globais do Admin",
+            "usingGlobalConfigHint": "O URL da API e o Token estão configurados globalmente nas Configurações de Admin. Preencha os campos abaixo apenas para substituir os valores globais para este canal.",
+            "apiUrlGlobalPlaceholder": "A usar config global — preencha para substituir",
+            "adminTokenGlobalPlaceholder": "A usar config global — preencha para substituir",
+            "saveButton": "Guardar Configurações de Conexão",
+            "success": {
+              "updated": "Configurações de conexão atualizadas com sucesso!"
+            },
+            "errors": {
+              "apiUrlRequired": "URL Base é obrigatória",
+              "updateError": "Erro ao atualizar configurações de conexão"
             }
           },
           "actions": {
@@ -1077,12 +1135,32 @@
       }
     },
     "preChatForm": {
-      "success": {
-        "updated": "Configurações do formulário pré-chat atualizadas com sucesso!"
+      "title": "Formulário Pré-Chat",
+      "description": "Colete informações dos visitantes antes de iniciar a conversa",
+      "totalFields": "Total de Campos",
+      "activeFields": "Campos Ativos",
+      "requiredFields": "Campos Obrigatórios",
+      "welcomeMessage": "Mensagem de Boas-vindas",
+      "welcomeMessagePlaceholder": "Olá! Para melhor atendê-lo, por favor preencha as informações abaixo:",
+      "welcomeMessageHelp": "Esta mensagem será exibida no topo do formulário pré-chat.",
+      "fieldConfiguration": "Configuração dos Campos",
+      "hidePreview": "Ocultar Preview",
+      "showPreview": "Ver Preview",
+      "formPreview": "Preview do Formulário",
+      "noActiveFields": "Nenhum campo ativo para exibir",
+      "howItWorksTitle": "Como funciona o formulário pré-chat",
+      "howItWorks": {
+        "point1": "O formulário é exibido antes do cliente iniciar a conversa",
+        "point2": "Informações coletadas são anexadas ao perfil do contato",
+        "point3": "Campos obrigatórios devem ser preenchidos para continuar",
+        "point4": "Use a função arrastar para reordenar os campos"
       },
-      "errors": {
-        "updateError": "Erro ao atualizar configurações do formulário pré-chat"
-      }
+      "disabledTitle": "Formulário pré-chat desabilitado",
+      "disabledDescription": "Ative para coletar informações dos visitantes antes de iniciar a conversa.",
+      "saving": "Salvando...",
+      "save": "Salvar Configurações",
+      "success": "Configurações do formulário pré-chat atualizadas com sucesso",
+      "error": "Erro ao atualizar configurações do formulário pré-chat"
     },
     "greeting": {
       "title": "Mensagem de Saudação",
@@ -1094,6 +1172,16 @@
       "message": {
         "label": "Mensagem de Saudação",
         "placeholder": "Digite aqui a mensagem de boas-vindas..."
+      },
+      "useTemplate": {
+        "label": "Usar template global",
+        "description": "Enviar um template de mensagem global em vez de texto livre"
+      },
+      "template": {
+        "label": "Template",
+        "placeholder": "Selecione um template global",
+        "empty": "Nenhum template global disponível",
+        "help": "Gerencie templates globais em Configurações → Templates de Mensagem"
       }
     },
     "webWidgetAdvanced": {
@@ -1581,5 +1669,51 @@
     "cancel": "Cancelar",
     "confirm": "Excluir Canal",
     "deleting": "Excluindo..."
+  },
+  "overview": {
+    "noIntegrationConfigured": "Nenhuma integração configurada",
+    "title": "Visão geral dos canais",
+    "subtitle": "Veja todos os tipos de canal, o status de cada um e como configurar.",
+    "statusLabel": {
+      "active": "Ativo",
+      "attention": "Requer atenção",
+      "error": "Com erro",
+      "unmonitored": "Sem monitorização",
+      "available": "Disponível"
+    },
+    "drawer": {
+      "title": "Conexões"
+    },
+    "inboxState": {
+      "connected": "Conectado",
+      "disconnected": "Desconectado",
+      "pending": "A aguardar confirmação",
+      "error": "Erro",
+      "unknown": "Desconhecido",
+      "unmonitored": "Sem monitorização",
+      "checking": "A verificar..."
+    },
+    "needsAttention_one": "{{count}} ligação a precisar de atenção",
+    "needsAttention_other": "{{count}} ligações a precisar de atenção",
+    "liveCheckFailed": "A verificação ao vivo falhou — a mostrar o último estado conhecido",
+    "providersCount": "{{count}} provedores",
+    "actions": {
+      "manage": "Gerenciar",
+      "manageAria": "Gerenciar conexões: {{count}} · {{status}}",
+      "connect": "Conectar",
+      "addConnection": "Adicionar conexão",
+      "deleteConnection": "Excluir conexão"
+    },
+    "capabilities": {
+      "publishing": "Publicação",
+      "conversations": "Conversas",
+      "campaigns": "Campanhas"
+    },
+    "statusMeta": {
+      "live": "Ao vivo",
+      "stored": "Informado",
+      "storedTooltip": "Estado informado pela configuração, não verificado ao vivo",
+      "lastSync": "Sincronizado {{time}}"
+    }
   }
 }

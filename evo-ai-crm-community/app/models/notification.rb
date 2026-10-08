@@ -41,7 +41,7 @@ class Notification < ApplicationRecord
     pipeline_task_completed: 23
   }.freeze
 
-  enum notification_type: NOTIFICATION_TYPES
+  enum :notification_type, NOTIFICATION_TYPES
 
   before_create :set_last_activity_at
   after_create_commit :process_notification_delivery, :dispatch_create_event
@@ -108,6 +108,8 @@ class Notification < ApplicationRecord
   end
   # rubocop:enable Metrics/MethodLength
 
+  # conversation_creation and conversation_assignment use scoped message queries
+  # (.incoming, .outgoing) that bypass association caches — known N+1 per those types.
   def push_message_body
     case notification_type
     when 'conversation_creation', 'sla_missed_first_response'
@@ -127,12 +129,30 @@ class Notification < ApplicationRecord
     primary_actor
   end
 
+  # Returns the sender (Contact or User) for this notification regardless of type.
+  # Used by both the REST serializer and push_event_data so the logic lives in one place.
+  def notification_sender
+    case notification_type
+    when 'assigned_conversation_new_message', 'participating_conversation_new_message', 'conversation_mention'
+      secondary_actor.try(:sender)
+    when 'conversation_creation'
+      conversation&.messages&.first&.sender
+    when 'conversation_assignment'
+      # Sender for assignment events needs a product decision (assigner vs assignee);
+      # the last message author is misleading. Out of scope here — return nil so the
+      # REST/WS payload omits sender and the UI falls back to the conversation contact.
+      nil
+    when 'pipeline_task_assigned', 'pipeline_task_due_soon', 'pipeline_task_overdue', 'pipeline_task_completed'
+      nil # task events have no message actor; title/preview/sender not in scope for this iteration
+    end
+  end
+
   private
 
   def message_body(actor)
     sender_name = sender_name(actor)
     content = message_content(actor)
-    "#{sender_name}: #{content}"
+    sender_name.present? ? "#{sender_name}: #{content}" : content
   end
 
   def sender_name(actor)
@@ -144,7 +164,7 @@ class Notification < ApplicationRecord
     attachments = actor.try(:attachments)
 
     if content.present?
-      transform_user_mention_content(content.truncate_words(10))
+      transform_user_mention_content(content.truncate(40))
     else
       attachments.present? ? I18n.t('notifications.attachment') : I18n.t('notifications.no_content')
     end
@@ -196,11 +216,27 @@ class Notification < ApplicationRecord
   end
 
   def primary_actor_data
-    {
+    data = {
       primary_actor: primary_actor&.push_event_data,
       # TODO: Rename push_message_title to push_message_body
       push_message_title: push_message_body,
       push_message_body: push_message_body
     }
+    s = notification_sender
+    if s.present?
+      # EVO-1551 round 3 / CB-8: notification frame is broadcast point-to-point
+      # to the recipient user's pubsub_token, but the recipient may be an agent
+      # while the caller (`Current.user`) is the admin who triggered the event.
+      # Mask phone-like Contact names based on the account flag alone so the
+      # admin trigger never leaks raw PII to the agent recipient.
+      raw_name = s.name
+      name = if s.is_a?(Contact) && ContactPiiMasker.account_flag_enabled?
+               ContactPiiMasker.mask_phone_like_name(raw_name)
+             else
+               raw_name
+             end
+      data[:sender] = { id: s.id, name: name, avatar_url: s.try(:avatar_url), type: s.class.name }
+    end
+    data
   end
 end

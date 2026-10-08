@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useLayoutEffect, useCallback, useRef } from 'react';
 import {
   Card,
   CardContent,
@@ -11,7 +11,9 @@ import {
 } from '@evoapi/design-system';
 import { MessageSquare, Info, Settings, Eye } from 'lucide-react';
 import { toast } from 'sonner';
+import { useLanguage } from '@/hooks/useLanguage';
 
+import type { TabSaveHandle } from './tabSave';
 import PreChatFields from './PreChatFields';
 import {
   PreChatField,
@@ -26,6 +28,7 @@ interface PreChatFormProps {
   inboxId: string;
   preChatFormEnabled?: boolean;
   preChatFormOptions?: PreChatFormOptions;
+  registerSave?: (handle: TabSaveHandle | null) => void;
   onUpdate?: (data: {
     pre_chat_form_enabled: boolean;
     pre_chat_form_options?: PreChatFormOptions;
@@ -54,8 +57,10 @@ const mockCustomAttributes: CustomAttribute[] = [
 export default function PreChatForm({
   preChatFormEnabled = false,
   preChatFormOptions,
+  registerSave,
   onUpdate,
 }: PreChatFormProps) {
+  const { t, currentLanguage } = useLanguage('channels');
   const [isFormEnabled, setIsFormEnabled] = useState(preChatFormEnabled);
   const [preChatMessage, setPreChatMessage] = useState('');
   const [preChatFields, setPreChatFields] = useState<PreChatField[]>([]);
@@ -72,6 +77,7 @@ export default function PreChatForm({
       // Always format fields when loading from backend to ensure proper formatting
       const formattedFields = getFormattedPreChatFields({
         preChatFields: preChatFormOptions.pre_chat_fields || [],
+        language: currentLanguage,
       });
       setPreChatFields(formattedFields);
     } else {
@@ -79,15 +85,16 @@ export default function PreChatForm({
       const defaultConfig = getPreChatFields({
         preChatFormOptions: {
           pre_chat_message: '',
-          pre_chat_fields: getDefaultPreChatFields(),
+          pre_chat_fields: getDefaultPreChatFields(currentLanguage),
         },
         customAttributes: mockCustomAttributes,
+        language: currentLanguage,
       });
 
       setPreChatMessage(defaultConfig.pre_chat_message);
       setPreChatFields(defaultConfig.pre_chat_fields);
     }
-  }, [preChatFormEnabled, preChatFormOptions]);
+  }, [preChatFormEnabled, preChatFormOptions, currentLanguage]);
 
   // Handle fields update
   const handleFieldsUpdate = useCallback((updatedFields: PreChatField[]) => {
@@ -112,14 +119,25 @@ export default function PreChatForm({
         await onUpdate(updateData);
       }
 
-      toast.success('Configurações do formulário pré-chat atualizadas com sucesso!');
+      toast.success(t('settings.preChatForm.success'));
     } catch (error) {
       console.error('Error updating pre-chat form:', error);
-      toast.error('Erro ao atualizar configurações do formulário pré-chat');
+      toast.error(t('settings.preChatForm.error'));
     } finally {
       setIsUpdating(false);
     }
   };
+
+  // Expose the save to the settings sticky footer registry.
+  const canSave = !isUpdating;
+  const registerSaveRef = useRef(registerSave);
+  registerSaveRef.current = registerSave;
+  const handleUpdateRef = useRef(handleUpdate);
+  handleUpdateRef.current = handleUpdate;
+  useLayoutEffect(() => {
+    registerSaveRef.current?.({ save: () => handleUpdateRef.current(), canSave });
+    return () => registerSaveRef.current?.(null);
+  }, [canSave]);
 
   // Get enabled fields count
   const enabledFieldsCount = preChatFields.filter(field => field.enabled).length;
@@ -132,13 +150,13 @@ export default function PreChatForm({
           {/* Header */}
           <div className="flex items-center justify-between pb-4 border-b border-border">
             <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-purple-50 dark:bg-purple-950/20">
-                <MessageSquare className="w-5 h-5 text-purple-700 dark:text-purple-400" />
+              <div className="p-2 rounded-lg bg-primary/10">
+                <MessageSquare className="w-5 h-5 text-primary" />
               </div>
               <div>
-                <h4 className="font-semibold text-foreground">Formulário Pré-Chat</h4>
+                <h4 className="font-semibold text-foreground">{t('settings.preChatForm.title')}</h4>
                 <p className="text-sm text-muted-foreground">
-                  Colete informações dos visitantes antes de iniciar a conversa
+                  {t('settings.preChatForm.description')}
                 </p>
               </div>
             </div>
@@ -152,37 +170,37 @@ export default function PreChatForm({
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-4 bg-muted/30 rounded-lg">
                 <div className="text-center">
                   <div className="text-2xl font-bold text-foreground">{preChatFields.length}</div>
-                  <div className="text-sm text-muted-foreground">Total de Campos</div>
+                  <div className="text-sm text-muted-foreground">{t('settings.preChatForm.totalFields')}</div>
                 </div>
                 <div className="text-center">
                   <div className="text-2xl font-bold text-green-600">{enabledFieldsCount}</div>
-                  <div className="text-sm text-muted-foreground">Campos Ativos</div>
+                  <div className="text-sm text-muted-foreground">{t('settings.preChatForm.activeFields')}</div>
                 </div>
                 <div className="text-center">
                   <div className="text-2xl font-bold text-orange-600">{requiredFieldsCount}</div>
-                  <div className="text-sm text-muted-foreground">Campos Obrigatórios</div>
+                  <div className="text-sm text-muted-foreground">{t('settings.preChatForm.requiredFields')}</div>
                 </div>
               </div>
 
               {/* Pre-Chat Message */}
               <div className="space-y-3">
                 <label className="text-sm font-medium text-foreground">
-                  Mensagem de Boas-vindas
+                  {t('settings.preChatForm.welcomeMessage')}
                 </label>
                 <Textarea
                   value={preChatMessage}
                   onChange={e => setPreChatMessage(e.target.value)}
-                  placeholder="Olá! Para melhor atendê-lo, por favor preencha as informações abaixo:"
+                  placeholder={t('settings.preChatForm.welcomeMessagePlaceholder')}
                   className="min-h-[80px]"
                 />
                 <p className="text-xs text-muted-foreground">
-                  Esta mensagem será exibida no topo do formulário pré-chat.
+                  {t('settings.preChatForm.welcomeMessageHelp')}
                 </p>
               </div>
 
               {/* Preview Toggle */}
               <div className="flex items-center justify-between">
-                <h5 className="text-sm font-medium text-foreground">Configuração dos Campos</h5>
+                <h5 className="text-sm font-medium text-foreground">{t('settings.preChatForm.fieldConfiguration')}</h5>
                 <Button
                   variant="outline"
                   size="sm"
@@ -190,7 +208,7 @@ export default function PreChatForm({
                   className="flex items-center gap-2"
                 >
                   <Eye className="h-4 w-4" />
-                  {showPreview ? 'Ocultar Preview' : 'Ver Preview'}
+                  {showPreview ? t('settings.preChatForm.hidePreview') : t('settings.preChatForm.showPreview')}
                 </Button>
               </div>
 
@@ -199,7 +217,7 @@ export default function PreChatForm({
                 <div className="space-y-4 p-4 border border-border rounded-lg bg-gradient-to-br from-blue-50 to-purple-50 dark:from-blue-950/20 dark:to-purple-950/20">
                   <div className="flex items-center gap-2 text-sm font-medium text-foreground">
                     <Settings className="h-4 w-4" />
-                    Preview do Formulário
+                    {t('settings.preChatForm.formPreview')}
                   </div>
 
                   {preChatMessage && (
@@ -219,20 +237,20 @@ export default function PreChatForm({
                           </label>
                           {field.type === 'textarea' ? (
                             <Textarea
-                              placeholder={field.placeholder}
+                              placeholder={field.placeholder || ''}
                               disabled
                               className="bg-white dark:bg-card"
                             />
                           ) : field.type === 'select' ? (
                             <Select disabled>
                               <SelectTrigger className="bg-white dark:bg-card">
-                                <SelectValue placeholder={field.placeholder} />
+                                <SelectValue placeholder={field.placeholder || ''} />
                               </SelectTrigger>
                             </Select>
                           ) : (
                             <input
                               type={field.type}
-                              placeholder={field.placeholder}
+                              placeholder={field.placeholder || ''}
                               disabled
                               className="w-full px-3 py-2 border border-border rounded-md bg-white dark:bg-card text-sm"
                             />
@@ -243,7 +261,7 @@ export default function PreChatForm({
 
                   {enabledFieldsCount === 0 && (
                     <div className="text-center py-4 text-muted-foreground">
-                      Nenhum campo ativo para exibir
+                      {t('settings.preChatForm.noActiveFields')}
                     </div>
                   )}
                 </div>
@@ -259,13 +277,13 @@ export default function PreChatForm({
                 <Info className="w-5 h-5 text-blue-700 dark:text-blue-400 mt-0.5 flex-shrink-0" />
                 <div className="text-sm">
                   <h6 className="font-medium text-blue-700 dark:text-blue-300 mb-1">
-                    Como funciona o formulário pré-chat
+                    {t('settings.preChatForm.howItWorksTitle')}
                   </h6>
                   <div className="text-blue-600 dark:text-blue-400 space-y-1">
-                    <p>• O formulário é exibido antes do cliente iniciar a conversa</p>
-                    <p>• Informações coletadas são anexadas ao perfil do contato</p>
-                    <p>• Campos obrigatórios devem ser preenchidos para continuar</p>
-                    <p>• Use a função arrastar para reordenar os campos</p>
+                    <p>• {t('settings.preChatForm.howItWorks.point1')}</p>
+                    <p>• {t('settings.preChatForm.howItWorks.point2')}</p>
+                    <p>• {t('settings.preChatForm.howItWorks.point3')}</p>
+                    <p>• {t('settings.preChatForm.howItWorks.point4')}</p>
                   </div>
                 </div>
               </div>
@@ -276,19 +294,13 @@ export default function PreChatForm({
           {!isFormEnabled && (
             <div className="text-center py-8">
               <MessageSquare className="w-12 h-12 text-muted-foreground mx-auto mb-3" />
-              <h5 className="font-medium text-foreground mb-1">Formulário pré-chat desabilitado</h5>
+              <h5 className="font-medium text-foreground mb-1">{t('settings.preChatForm.disabledTitle')}</h5>
               <p className="text-sm text-muted-foreground">
-                Ative para coletar informações dos visitantes antes de iniciar a conversa.
+                {t('settings.preChatForm.disabledDescription')}
               </p>
             </div>
           )}
 
-          {/* Save Button */}
-          <div className="flex justify-end pt-4 border-t border-border">
-            <Button onClick={handleUpdate} disabled={isUpdating} className="min-w-32">
-              {isUpdating ? 'Salvando...' : 'Salvar Configurações'}
-            </Button>
-          </div>
         </CardContent>
       </Card>
     </div>

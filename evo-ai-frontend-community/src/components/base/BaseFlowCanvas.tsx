@@ -13,12 +13,13 @@ import {
   MiniMap,
   ProOptions,
   applyNodeChanges,
+  applyEdgeChanges,
   type NodeChange,
+  type EdgeChange,
   type Node,
   type Edge,
   ConnectionLineType,
 } from '@xyflow/react';
-import '@xyflow/react/dist/style.css';
 import './BaseFlow.css';
 
 import { Button } from '@evoapi/design-system';
@@ -28,23 +29,23 @@ import { BaseFlowContextMenu } from './BaseFlowContextMenu';
 import { BaseFlowHelperLines } from './BaseFlowHelperLines';
 import BaseDefaultEdge from './BaseDefaultEdge';
 import { cn, getHelperLines, createMiniMapNodeColors } from '@/lib/utils';
+import { flowTokens } from '@/components/journey/_ui/tokens';
 
-// Edge types padrão
+// Default edge types
 const defaultEdgeTypes = {
   default: BaseDefaultEdge,
   'base-default': BaseDefaultEdge,
 };
 
-// Tipos base para configuração do canvas
 export interface BaseFlowCanvasProps {
-  // Dados do flow
+  // Flow data
   initialNodes?: Node[];
   initialEdges?: Edge[];
 
-  // Configurações do canvas
+  // Canvas config
   nodeTypes: Record<string, React.ComponentType<any>>;
 
-  // Callbacks essenciais
+  // Core callbacks
   onNodesChange?: (changes: NodeChange[]) => void;
   onEdgesChange?: (changes: any[]) => void;
   onConnect?: OnConnect;
@@ -53,32 +54,32 @@ export interface BaseFlowCanvasProps {
   onDrop?: (event: React.DragEvent) => void;
   onFlowDataChange?: (nodes: Node[], edges: Edge[]) => void;
 
-  // 🆕 Callback estendido com variables (compatibilidade com automação)
+  // Extended callback carrying the flow variables
   onFlowDataChangeExtended?: (flowData: { nodes: Node[]; edges: Edge[]; variables: any[] }) => void;
-  flowVariables?: any[]; // Variables do flow para compatibilidade
+  flowVariables?: any[];
 
-  // Configurações visuais
+  // Visual config
   showMiniMap?: boolean;
   showControls?: boolean;
   showBackground?: boolean;
   backgroundVariant?: 'dots' | 'lines' | 'cross';
 
-  // Painel lateral
+  // Side panel
   NodePanelComponent?: React.ComponentType<{ onClose: () => void }>;
   showNodePanelByDefault?: boolean;
 
-  // Configurações adicionais
+  // Extra config
   connectionMode?: ConnectionMode;
   snapToGrid?: boolean;
   snapGrid?: [number, number];
 
-  // Cores do MiniMap por tipo de node
+  // MiniMap colors keyed by node type
   miniMapNodeColors?: Record<string, string>;
 
-  // Renderização de painéis customizados
+  // Custom panel rendering
   renderCustomPanels?: () => React.ReactNode;
 
-  // Componentes customizados
+  // Custom components
   ContextMenuComponent?: React.ComponentType<{
     x: number;
     y: number;
@@ -91,7 +92,7 @@ export interface BaseFlowCanvasProps {
     vertical?: number;
   }>;
 
-  // Configurações de helper lines
+  // Helper line config
   enableHelperLines?: boolean;
   helperLinesConfig?: {
     strokeColor?: string;
@@ -100,15 +101,15 @@ export interface BaseFlowCanvasProps {
     opacity?: number;
   };
 
-  // 🆕 Helper lines customizado (compatibilidade com automação)
+  // Use the custom snap instead of xyflow's own change handler
   customHelperLines?: boolean;
 
-  // Classes CSS customizadas
+  // Custom CSS classes
   className?: string;
   canvasClassName?: string;
   style?: React.CSSProperties;
 
-  // 🆕 Sistema de painéis de configuração (compatibilidade com automação)
+  // Config panel system
   configPanelSystem?: boolean;
   renderConfigPanel?: (
     nodeType: string,
@@ -118,7 +119,7 @@ export interface BaseFlowCanvasProps {
     onClose: () => void,
   ) => React.ReactNode;
 
-  // 🆕 Configurações específicas do ReactFlow (compatibilidade com automação)
+  // ReactFlow overrides
   reactFlowProps?: {
     minZoom?: number;
     maxZoom?: number;
@@ -171,9 +172,27 @@ export function BaseFlowCanvas({
   const { screenToFlowPosition } = useReactFlow();
   const { type, setPointerEvents, setType } = useDnD();
 
-  // Estados do canvas
-  const [nodes, setNodes, onNodesChangeInternal] = useNodesState(initialNodes);
+  // Canvas state
+  const [nodes, setNodesState] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChangeInternal] = useEdgesState(initialEdges);
+
+  // Synchronous mirror of `nodes`: inside one React batch the closure still
+  // holds the pre-batch value, so a payload built from it undoes the changes
+  // the batch already applied.
+  const nodesRef = useRef(nodes);
+
+  // Single writer for node state, keeping the mirror and React state in step.
+  // Payloads read `nodesRef.current`; `nodes` is for rendering only.
+  const commitNodes = useCallback(
+    (update: Node[] | ((current: Node[]) => Node[])): Node[] => {
+      const next = typeof update === 'function' ? update(nodesRef.current) : update;
+      nodesRef.current = next;
+      setNodesState(next);
+      return next;
+    },
+    [setNodesState],
+  );
+
   const [showNodePanel, setShowNodePanel] = useState(showNodePanelByDefault);
 
   // Context menu
@@ -184,72 +203,64 @@ export function BaseFlowCanvas({
     nodeId?: string;
   }>({ show: false, x: 0, y: 0 });
 
-  // Helper lines para snap visual
+  // Helper lines for visual snapping
   const [helperLineHorizontal, setHelperLineHorizontal] = useState<number | undefined>(undefined);
   const [helperLineVertical, setHelperLineVertical] = useState<number | undefined>(undefined);
 
-  // 🆕 Estados para sistema de painéis de configuração
+  // Config panel state
   const [showConfigPanel, setShowConfigPanel] = useState(false);
   const [configNodeData, setConfigNodeData] = useState<any>(null);
   const [configPanelType, setConfigPanelType] = useState<string>('');
 
-  // 🆕 Custom onNodesChange com helper lines customizado
-  const customApplyNodeChanges = useCallback(
-    (changes: NodeChange[], nodes: Node[]): Node[] => {
+  // Helper line side effect only, kept out of the state updater so it runs
+  // once per batch.
+  const applyHelperLineSnap = useCallback(
+    (changes: NodeChange[], nodes: Node[]) => {
+      if (!customHelperLines) {
+        return;
+      }
+
       // Reset helper lines
       setHelperLineHorizontal(undefined);
       setHelperLineVertical(undefined);
 
-      // Se helper lines customizado está habilitado
-      if (customHelperLines) {
-        // Se single node sendo arrastado
-        if (
-          changes.length === 1 &&
-          changes[0].type === 'position' &&
-          changes[0].dragging &&
-          changes[0].position
-        ) {
-          const helperLines = getHelperLines(changes[0], nodes);
+      // Single node being dragged
+      if (
+        changes.length === 1 &&
+        changes[0].type === 'position' &&
+        changes[0].dragging &&
+        changes[0].position
+      ) {
+        const helperLines = getHelperLines(changes[0], nodes);
 
-          // Snap to helper line position
-          changes[0].position.x = helperLines.snapPosition.x ?? changes[0].position.x;
-          changes[0].position.y = helperLines.snapPosition.y ?? changes[0].position.y;
+        // Snap to helper line position
+        changes[0].position.x = helperLines.snapPosition.x ?? changes[0].position.x;
+        changes[0].position.y = helperLines.snapPosition.y ?? changes[0].position.y;
 
-          // Set helper lines for display
-          setHelperLineHorizontal(helperLines.horizontal);
-          setHelperLineVertical(helperLines.vertical);
-        }
+        // Set helper lines for display
+        setHelperLineHorizontal(helperLines.horizontal);
+        setHelperLineVertical(helperLines.vertical);
       }
-
-      return applyNodeChanges(changes, nodes);
     },
     [customHelperLines],
   );
 
-  // Handlers de mudanças
+  // Change handlers
   const handleNodesChange = useCallback(
     (changes: NodeChange[]) => {
-      // Usar custom apply se helper lines customizado está habilitado
-      if (customHelperLines) {
-        setNodes(nodes => customApplyNodeChanges(changes, nodes));
-      } else {
-        onNodesChangeInternal(changes);
-      }
+      // Mutates changes[0].position for the snap; must run once per batch.
+      applyHelperLineSnap(changes, nodesRef.current);
+
+      const updatedNodes = commitNodes(current => applyNodeChanges(changes, current));
 
       if (onNodesChange) {
         onNodesChange(changes);
       }
 
-      // Notificar mudanças no flow
-      const updatedNodes = customHelperLines
-        ? customApplyNodeChanges(changes, nodes)
-        : applyNodeChanges(changes, nodes);
-
       if (onFlowDataChange) {
         onFlowDataChange(updatedNodes, edges);
       }
 
-      // 🆕 Callback estendido com variables
       if (onFlowDataChangeExtended) {
         onFlowDataChangeExtended({
           nodes: updatedNodes,
@@ -259,37 +270,81 @@ export function BaseFlowCanvas({
       }
     },
     [
-      onNodesChangeInternal,
+      commitNodes,
       onNodesChange,
       onFlowDataChange,
       onFlowDataChangeExtended,
-      nodes,
       edges,
       flowVariables,
-      customHelperLines,
-      customApplyNodeChanges,
+      applyHelperLineSnap,
     ],
   );
 
   const handleEdgesChange = useCallback(
-    (changes: any[]) => {
+    (changes: EdgeChange[]) => {
       onEdgesChangeInternal(changes);
+
+      // Selection is volatile UI state: propagating it would mark the journey
+      // dirty without a real edit. Nodes are stripped downstream, edges are
+      // not, so filter here.
+      const persistChanges = changes.filter(c => c.type !== 'select');
+      if (persistChanges.length > 0) {
+        const updatedEdges = applyEdgeChanges(persistChanges, edges);
+        if (onFlowDataChange) {
+          onFlowDataChange(nodesRef.current, updatedEdges);
+        }
+        if (onFlowDataChangeExtended) {
+          onFlowDataChangeExtended({
+            nodes: nodesRef.current,
+            edges: updatedEdges,
+            variables: flowVariables,
+          });
+        }
+      }
+
       if (onEdgesChange) {
         onEdgesChange(changes);
       }
     },
-    [onEdgesChangeInternal, onEdgesChange],
+    [
+      onEdgesChangeInternal,
+      onEdgesChange,
+      onFlowDataChange,
+      onFlowDataChangeExtended,
+      edges,
+      flowVariables,
+    ],
   );
 
   const handleConnect = useCallback(
     (connection: Parameters<OnConnect>[0]) => {
       const edge = { ...connection, animated: true, type: 'default' };
-      setEdges(eds => addEdge(edge, eds));
+      // Bare value, not a functional updater: the side effects fire after the
+      // state write, matching handleEdgesChange.
+      const updatedEdges = addEdge(edge, edges);
+      setEdges(updatedEdges);
+      if (onFlowDataChange) {
+        onFlowDataChange(nodesRef.current, updatedEdges);
+      }
+      if (onFlowDataChangeExtended) {
+        onFlowDataChangeExtended({
+          nodes: nodesRef.current,
+          edges: updatedEdges,
+          variables: flowVariables,
+        });
+      }
       if (onConnect) {
         onConnect(connection);
       }
     },
-    [setEdges, onConnect],
+    [
+      setEdges,
+      edges,
+      onConnect,
+      onFlowDataChange,
+      onFlowDataChangeExtended,
+      flowVariables,
+    ],
   );
 
   // Drag and drop
@@ -314,7 +369,7 @@ export function BaseFlowCanvas({
       if (onDrop) {
         onDrop(event);
       } else {
-        // Comportamento padrão de drop com auto-seleção
+        // Default drop behaviour, with auto-select
         const newNodeId = `${type}-${Date.now()}`;
         const newNode: Node = {
           id: newNodeId,
@@ -323,24 +378,45 @@ export function BaseFlowCanvas({
           data: { label: `${type} node` },
         };
 
-        // Adicionar o novo node
-        setNodes(nds => nds.concat(newNode));
+        // Drops bypass xyflow's NodeChange path, so this is the only place the
+        // store hears about the new node: commit first, notify after.
+        const updatedNodes = commitNodes(current => current.concat(newNode));
+        if (onFlowDataChange) {
+          onFlowDataChange(updatedNodes, edges);
+        }
+        if (onFlowDataChangeExtended) {
+          onFlowDataChangeExtended({
+            nodes: updatedNodes,
+            edges,
+            variables: flowVariables,
+          });
+        }
         
-        // Limpar o type do DnD context para sair do modo de drag
+        // Leave drag mode
         setType(null);
         
-        // Selecionar o novo node após um pequeno delay para garantir que foi adicionado
+        // Select the new node once it has been added
         setTimeout(() => {
-          setNodes(nds => 
-            nds.map(node => ({ 
-              ...node, 
-              selected: node.id === newNodeId 
-            }))
+          commitNodes(current =>
+            current.map(node => ({
+              ...node,
+              selected: node.id === newNodeId,
+            })),
           );
         }, 10);
       }
     },
-    [type, screenToFlowPosition, onDrop, setNodes, setType],
+    [
+      type,
+      screenToFlowPosition,
+      onDrop,
+      commitNodes,
+      setType,
+      edges,
+      onFlowDataChange,
+      onFlowDataChangeExtended,
+      flowVariables,
+    ],
   );
 
   // Context menu
@@ -356,7 +432,7 @@ export function BaseFlowCanvas({
 
   const handlePaneClick = useCallback(() => {
     setContextMenu({ show: false, x: 0, y: 0 });
-    // 🆕 Fechar painel de configuração também
+    // Close the config panel too
     if (configPanelSystem) {
       setShowConfigPanel(false);
       setConfigNodeData(null);
@@ -364,7 +440,7 @@ export function BaseFlowCanvas({
     }
   }, [configPanelSystem]);
 
-  // 🆕 Handler para click em node (sistema de painéis de configuração)
+  // Node click handler for the config panel system
   const handleNodeClickInternal = useCallback(
     (event: React.MouseEvent, node: Node) => {
       if (configPanelSystem) {
@@ -374,7 +450,6 @@ export function BaseFlowCanvas({
         setShowConfigPanel(true);
       }
 
-      // Callback original
       if (onNodeClick) {
         onNodeClick(event, node);
       }
@@ -382,15 +457,29 @@ export function BaseFlowCanvas({
     [configPanelSystem, onNodeClick],
   );
 
-  // 🆕 Função para atualizar node (sistema de painéis de configuração)
+  // Config panel edits mutate `node.data` outside xyflow's NodeChange path, so
+  // this is the only place the store hears about them. Side effects run after
+  // commitNodes returns, never inside the updater it receives.
   const updateNode = useCallback(
     (nodeId: string, newData: any) => {
-      setNodes(nds => nds.map(node => (node.id === nodeId ? { ...node, data: newData } : node)));
+      const updated = commitNodes(current =>
+        current.map(node => (node.id === nodeId ? { ...node, data: newData } : node)),
+      );
+      if (onFlowDataChange) {
+        onFlowDataChange(updated, edges);
+      }
+      if (onFlowDataChangeExtended) {
+        onFlowDataChangeExtended({
+          nodes: updated,
+          edges,
+          variables: flowVariables,
+        });
+      }
     },
-    [setNodes],
+    [commitNodes, onFlowDataChange, onFlowDataChangeExtended, edges, flowVariables],
   );
 
-  // Controle de conexões
+  // Connection lifecycle
   const handleConnectStart = useCallback(() => {
     setPointerEvents('auto');
   }, [setPointerEvents]);
@@ -399,30 +488,82 @@ export function BaseFlowCanvas({
     setPointerEvents('none');
   }, [setPointerEvents]);
 
-  // Cores padrão do MiniMap usando utilitário
   const defaultMiniMapColors = createMiniMapNodeColors(miniMapNodeColors);
 
-  // 🆕 Configurações do ReactFlow com defaults e customizações
+  // ReactFlow config: defaults plus caller overrides
   const finalReactFlowProps = {
-    // Defaults padrão
+    // Defaults
     minZoom: 0.1,
     maxZoom: 10,
     fitView: false,
     defaultViewport: { x: 0, y: 0, zoom: 1 },
     elevateEdgesOnSelect: true,
     elevateNodesOnSelect: true,
-    // Customizações do usuário
+    // Caller overrides
     ...reactFlowProps,
   };
 
+  // Edge deletion bypasses xyflow's change pipeline, so notify the store here
+  // or the next save loses it.
   const handleDeleteEdge = useCallback(
-    (id: any) => {
-      setEdges(edges => {
-        const left = edges.filter((edge: any) => edge.id !== id);
-        return left;
-      });
+    (id: string) => {
+      const updatedEdges = edges.filter(edge => edge.id !== id);
+      setEdges(updatedEdges);
+      if (onFlowDataChange) {
+        onFlowDataChange(nodesRef.current, updatedEdges);
+      }
+      if (onFlowDataChangeExtended) {
+        onFlowDataChangeExtended({
+          nodes: nodesRef.current,
+          edges: updatedEdges,
+          variables: flowVariables,
+        });
+      }
     },
-    [setEdges],
+    [edges, setEdges, onFlowDataChange, onFlowDataChangeExtended, flowVariables],
+  );
+
+  const handleDeleteNode = useCallback(
+    (nodeId: string) => {
+      const updatedEdges = edges.filter(
+        edge => edge.source !== nodeId && edge.target !== nodeId,
+      );
+      const updatedNodes = commitNodes(current => current.filter(node => node.id !== nodeId));
+      setEdges(updatedEdges);
+      if (onFlowDataChange) {
+        onFlowDataChange(updatedNodes, updatedEdges);
+      }
+      if (onFlowDataChangeExtended) {
+        onFlowDataChangeExtended({
+          nodes: updatedNodes,
+          edges: updatedEdges,
+          variables: flowVariables,
+        });
+      }
+    },
+    [edges, commitNodes, setEdges, onFlowDataChange, onFlowDataChangeExtended, flowVariables],
+  );
+
+  const handleDuplicateNode = useCallback(
+    (nodeId: string) => {
+      const original = nodesRef.current.find(node => node.id === nodeId);
+      if (!original) return;
+      const copy: Node = {
+        ...original,
+        id: `${original.id}-copy-${Date.now()}`,
+        position: { x: original.position.x + 50, y: original.position.y + 50 },
+        selected: false,
+        dragging: false,
+      };
+      const updatedNodes = commitNodes(current => current.concat(copy));
+      if (onFlowDataChange) {
+        onFlowDataChange(updatedNodes, edges);
+      }
+      if (onFlowDataChangeExtended) {
+        onFlowDataChangeExtended({ nodes: updatedNodes, edges, variables: flowVariables });
+      }
+    },
+    [edges, commitNodes, onFlowDataChange, onFlowDataChangeExtended, flowVariables],
   );
 
   return (
@@ -431,6 +572,8 @@ export function BaseFlowCanvas({
       ref={reactFlowWrapper}
       style={style}
     >
+      {/* colorMode="light" keeps the ReactFlow chrome light and stops RF from
+          injecting .dark into .react-flow, which would darken the cards. */}
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -451,7 +594,7 @@ export function BaseFlowCanvas({
         snapToGrid={snapToGrid}
         snapGrid={snapGrid}
         proOptions={proOptions}
-        colorMode="dark"
+        colorMode="light"
         deleteKeyCode={['Backspace', 'Delete']}
         multiSelectionKeyCode={['Meta', 'Ctrl']}
         panOnDrag={true}
@@ -461,7 +604,7 @@ export function BaseFlowCanvas({
         zoomOnDoubleClick={false}
         selectNodesOnDrag={false}
         connectionLineType={ConnectionLineType.Bezier}
-        // 🆕 Props customizáveis
+        // Caller overrides
         {...finalReactFlowProps}
         fitViewOptions={{
           padding: 0.1,
@@ -490,7 +633,8 @@ export function BaseFlowCanvas({
             variant={backgroundVariant as any}
             gap={24}
             size={1.5}
-            className="bg-sidebar"
+            color={flowTokens.canvas.grid}
+            className="bg-flow-canvas-bg"
           />
         )}
 
@@ -509,13 +653,13 @@ export function BaseFlowCanvas({
         {/* MiniMap */}
         {showMiniMap && (
           <MiniMap
-            className="bg-neutral-800/80 border border-neutral-700 rounded-lg shadow-lg"
-            nodeColor={node => defaultMiniMapColors[node.type || 'default'] || '#64748b'}
-            maskColor="rgba(21, 21, 21, 0.6)"
+            className="bg-flow-palette-bg/85 border border-flow-palette-divider rounded-lg shadow-lg backdrop-blur-sm"
+            nodeColor={node => defaultMiniMapColors[node.type || 'default'] || 'var(--color-muted-foreground)'}
+            maskColor="color-mix(in srgb, var(--color-foreground) 12%, transparent)"
           />
         )}
 
-        {/* Botão do painel de nodes */}
+        {/* Node panel toggle */}
         {NodePanelComponent && (
           <Panel position="top-right">
             <Button
@@ -533,7 +677,7 @@ export function BaseFlowCanvas({
           </Panel>
         )}
 
-        {/* Painel de nodes */}
+        {/* Node panel */}
         {NodePanelComponent && showNodePanel && (
           <Panel position="top-right" className="mt-12">
             <NodePanelComponent onClose={() => setShowNodePanel(false)} />
@@ -552,7 +696,7 @@ export function BaseFlowCanvas({
             />
           ))}
 
-        {/* Painéis customizados */}
+        {/* Custom panels */}
         {renderCustomPanels && renderCustomPanels()}
       </ReactFlow>
 
@@ -565,7 +709,7 @@ export function BaseFlowCanvas({
             nodeId={contextMenu.nodeId}
             onClose={() => setContextMenu({ show: false, x: 0, y: 0 })}
             onDeleteNode={nodeId => {
-              setNodes(nds => nds.filter(n => n.id !== nodeId));
+              handleDeleteNode(nodeId);
               setContextMenu({ show: false, x: 0, y: 0 });
             }}
           />
@@ -576,31 +720,31 @@ export function BaseFlowCanvas({
             nodeId={contextMenu.nodeId}
             onClose={() => setContextMenu({ show: false, x: 0, y: 0 })}
             onDeleteNode={nodeId => {
-              setNodes(nds => nds.filter(n => n.id !== nodeId));
+              handleDeleteNode(nodeId);
+              setContextMenu({ show: false, x: 0, y: 0 });
+            }}
+            onDuplicateNode={nodeId => {
+              handleDuplicateNode(nodeId);
               setContextMenu({ show: false, x: 0, y: 0 });
             }}
           />
         ))}
 
-      {/* 🆕 Sistema de painéis de configuração */}
       {configPanelSystem &&
         showConfigPanel &&
         configNodeData &&
         configPanelType &&
-        renderConfigPanel && (
-          <div className="absolute top-16 left-4 z-50">
-            {renderConfigPanel(
-              configPanelType,
-              configNodeData.data,
-              configNodeData.id,
-              updateNode,
-              () => {
-                setShowConfigPanel(false);
-                setConfigNodeData(null);
-                setConfigPanelType('');
-              },
-            )}
-          </div>
+        renderConfigPanel &&
+        renderConfigPanel(
+          configPanelType,
+          configNodeData.data,
+          configNodeData.id,
+          updateNode,
+          () => {
+            setShowConfigPanel(false);
+            setConfigNodeData(null);
+            setConfigPanelType('');
+          },
         )}
     </div>
   );

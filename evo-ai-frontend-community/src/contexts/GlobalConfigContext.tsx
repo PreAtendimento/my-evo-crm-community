@@ -19,6 +19,12 @@ export interface GlobalConfig {
   hasInstagramConfig?: boolean;
   hasEvolutionConfig?: boolean;
   hasEvolutionGoConfig?: boolean;
+  hasEvolutionHubConfig?: boolean;
+  evolutionHubEnabled?: boolean;
+  // Flag genérica (default true quando ausente). false esconde "Usar canal
+  // existente do Hub" (anti-vazamento cross-tenant no SaaS). Backend a emite no
+  // public_config a partir da env HUB_ALLOW_EXISTING_CHANNELS.
+  hubAllowExistingChannels?: boolean;
   hasTwitterConfig?: boolean;
   openaiConfigured?: boolean;
   enableAccountSignup?: boolean;
@@ -81,8 +87,18 @@ export const fetchSetupStatus = async (): Promise<boolean> => {
     const status = await setupService.getStatus();
     setupRequiredCache = status.status === 'inactive';
     return setupRequiredCache;
-  } catch {
-    setupRequiredCache = false;
+  } catch (e) {
+    // Fail closed: when /setup/status errors transiently (network hiccup,
+    // auth-service restart) we do NOT push the user to the bootstrap wizard.
+    // Fresh installs are already handled correctly by the auth-service
+    // (commit 2c7e6b8, EVO-971): /setup/status now reports `inactive`
+    // whenever User.exists? is false, so a wiped install reaches /setup
+    // through the success path, not through this fallback. The previous
+    // fail-open default sent every logged-in user to the wizard on any
+    // transient outage, where an operator could re-run bootstrap by
+    // mistake.
+    // Do not cache the failure — the next render retries.
+    console.warn('[GlobalConfig] /setup/status failed, defaulting setupRequired=false', e);
     return false;
   }
 };
@@ -97,6 +113,18 @@ export const clearGlobalConfigCache = () => {
   // Notificar listeners para re-fetch (ex.: após admin salvar uma config, os
   // booleans `hasXxxConfig` mudam e o fluxo de criação de canal precisa refletir)
   globalConfigListeners.forEach(listener => listener());
+};
+
+// Versão await-able: invalida o cache e aguarda o próximo fetch terminar.
+// Usado pelo admin após salvar uma config para garantir que `hasXxxConfig`
+// já está atualizado antes da UI prosseguir (sem janela de race entre o
+// success toast e a próxima ação do usuário).
+export const refreshGlobalConfig = async (): Promise<GlobalConfig> => {
+  globalConfigCache = null;
+  globalConfigPromise = null;
+  const data = await fetchGlobalConfig();
+  globalConfigListeners.forEach(listener => listener());
+  return data;
 };
 
 export const clearSetupCache = () => {

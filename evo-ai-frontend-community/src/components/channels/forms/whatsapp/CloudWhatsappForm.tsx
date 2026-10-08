@@ -3,9 +3,10 @@ import { toast } from 'sonner';
 import { useLanguage } from '@/hooks/useLanguage';
 import { useGlobalConfig } from '@/contexts/GlobalConfigContext';
 import WhatsappService from '@/services/channels/whatsappService';
-import { FormField } from '../../shared/FormField';
+import { Button } from '@evoapi/design-system';
 import { FormSection } from '../../shared/FormSection';
-import { sanitizeInboxName } from '@/utils/sanitizeName';
+import HubConnectButton from '@/components/inbox/HubConnectButton';
+import { FormActionBar } from '@/components/channels/shared/FormActionBar';
 import { PhoneInput } from '@/components/shared/PhoneInput';
 
 // FB in window
@@ -20,11 +21,13 @@ interface CloudWhatsappFormProps {
   form: Record<string, string | boolean>;
   onFormChange: (key: string, value: string | boolean) => void;
   canFB: boolean;
+  onCancel?: () => void;
 }
 
-export const CloudWhatsappForm = ({ form, onFormChange, canFB }: CloudWhatsappFormProps) => {
+export const CloudWhatsappForm = ({ form, onFormChange, canFB, onCancel }: CloudWhatsappFormProps) => {
   const { t } = useLanguage('whatsapp');
   const config = useGlobalConfig();
+  const hubEnabled = config.evolutionHubEnabled === true;
 
   const [isAutoFilled, setIsAutoFilled] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -34,11 +37,6 @@ export const CloudWhatsappForm = ({ form, onFormChange, canFB }: CloudWhatsappFo
 
   const getStr = (key: string, fallback = ''): string =>
     typeof form[key] === 'string' ? (form[key] as string) : fallback;
-
-  const handleDisplayNameChange = (value: string) => {
-    onFormChange('display_name', value);
-    onFormChange('name', sanitizeInboxName(value));
-  };
 
   const handleClearFields = () => {
     onFormChange('name', '');
@@ -54,13 +52,15 @@ export const CloudWhatsappForm = ({ form, onFormChange, canFB }: CloudWhatsappFo
 
   // Load Facebook SDK on component mount
   useEffect(() => {
+    // Skip entirely in Hub mode — the Embedded Signup flow lives at the Hub.
+    if (hubEnabled) return;
     // The SDK initializes with wpAppId — if the GlobalConfig response hasn't
     // arrived yet (context races with initial render), bail. When config
     // hydrates, wpAppId/wpApiVersion become truthy and the effect re-runs.
     if (canFB && config.wpAppId) {
       loadFacebookSDK();
     }
-  }, [canFB, config.wpAppId, config.wpApiVersion]);
+  }, [hubEnabled, canFB, config.wpAppId, config.wpApiVersion]);
 
   // Listen for Facebook postMessage events
   useEffect(() => {
@@ -170,6 +170,9 @@ export const CloudWhatsappForm = ({ form, onFormChange, canFB }: CloudWhatsappFo
     script.async = true;
     script.defer = true;
     script.src = 'https://connect.facebook.net/en_US/sdk.js';
+    script.onerror = () => {
+      toast.error(t('cloudWhatsappForm.errors.sdkNotLoaded'));
+    };
     document.head.appendChild(script);
   };
 
@@ -251,8 +254,33 @@ export const CloudWhatsappForm = ({ form, onFormChange, canFB }: CloudWhatsappFo
 
   return (
     <div className="space-y-6">
+      {/* Evo Hub branch: skip native FB Embedded Signup and let the Hub
+          orchestrate Meta OAuth. The button here POSTs to /api/v1/inboxes with
+          via_hub: true; the page footer is hidden by the parent in this mode. */}
+      {hubEnabled && (
+        <>
+          <FormSection title={t('cloudWhatsappForm.facebookIntegration.title')}>
+            <div className="space-y-4">
+              <HubConnectButton
+                channelType="whatsapp_cloud"
+                name={getStr('display_name') || getStr('name')}
+              />
+            </div>
+          </FormSection>
+          {onCancel && (
+            <FormActionBar>
+              <div className="flex justify-end">
+                <Button variant="outline" onClick={onCancel} className="min-w-24">
+                  {t('channels:newChannel.buttons.cancel')}
+                </Button>
+              </div>
+            </FormActionBar>
+          )}
+        </>
+      )}
+
       {/* Facebook Login Button */}
-      {canFB && !isAutoFilled && (
+      {!hubEnabled && canFB && !isAutoFilled && (
         <FormSection
           title={t('cloudWhatsappForm.facebookIntegration.title')}
           className="bg-blue-50/10 border-blue-200/20"
@@ -347,25 +375,9 @@ export const CloudWhatsappForm = ({ form, onFormChange, canFB }: CloudWhatsappFo
         </FormSection>
       )}
 
-      {/* Basic Information */}
+      {/* Basic Information (skipped in Hub mode — Hub returns these via webhook). */}
+      {!hubEnabled && (
       <div data-tour="whatsapp-cloud-credentials">
-      <FormField
-        label={t('cloudWhatsappForm.fields.displayName.label')}
-        value={getStr('display_name')}
-        onChange={handleDisplayNameChange}
-        placeholder={t('cloudWhatsappForm.fields.displayName.placeholder')}
-        required
-      />
-
-      <FormField
-        label={t('cloudWhatsappForm.fields.channelName.label')}
-        value={getStr('name')}
-        onChange={value => onFormChange('name', value)}
-        placeholder={t('cloudWhatsappForm.fields.channelName.placeholder')}
-        required
-        readOnly
-      />
-
       <div>
         <label className="text-sm font-medium text-sidebar-foreground/80 block mb-1">
           {t('cloudWhatsappForm.fields.phoneNumber.label')} <span className="text-destructive">*</span>
@@ -379,9 +391,10 @@ export const CloudWhatsappForm = ({ form, onFormChange, canFB }: CloudWhatsappFo
         />
       </div>
 
-      {/* Campos sensíveis removidos da UI - são preenchidos automaticamente via Facebook OAuth */}
-      {/* api_key, phone_number_id, business_account_id, waba_id são mantidos no form state mas não exibidos */}
+      {/* Sensitive fields (api_key, phone_number_id, business_account_id, waba_id)
+          stay in form state but are hidden — auto-filled via Facebook OAuth. */}
       </div>
+      )}
     </div>
   );
 };

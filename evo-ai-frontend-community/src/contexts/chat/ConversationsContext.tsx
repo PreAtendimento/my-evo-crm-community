@@ -8,15 +8,17 @@ import { useLanguage } from '@/hooks/useLanguage';
 
 import { chatService } from '@/services/chat/chatService';
 import { conversationAPI } from '@/services/conversations/conversationService';
+import { useUnansweredConversationsStore } from '@/store/unansweredConversationsStore';
 
 import { toast } from 'sonner';
 
 import { extractConversationsData } from '@/utils/chat/responseHelpers';
 import { isActionNotSupported } from '@/utils/chat/actionSupport';
 
-import { Contact, Conversation, ConversationListParams } from '@/types/chat/api';
+import { Contact, Conversation, ConversationListParams, ConversationsQuery } from '@/types/chat/api';
 import { PaginationMeta } from '@/types/core';
 import { DEFAULT_PAGE_SIZE } from '@/constants/pagination';
+import { matchesConversationId } from '@/utils/chat/conversationMatcher';
 
 export function ConversationsProvider({ children }: { children: React.ReactNode }) {
   const { t } = useLanguage('chat');
@@ -27,16 +29,15 @@ export function ConversationsProvider({ children }: { children: React.ReactNode 
   const loadingSpecificRef = useRef<Set<string>>(new Set());
   const selectionLockRef = useRef(false);
   const lastCleanupRef = useRef(0);
+  // The query that produced the current list, so load-more replays the SAME
+  // request for the next page instead of an unfiltered GET /conversations.
+  const currentQueryRef = useRef<ConversationsQuery>({ kind: 'list', params: { status: 'open' } });
 
   const findConversationByAnyId = useCallback(
     (conversationId: string) => {
       const idStr = String(conversationId);
       return (
-        state.conversations.find(
-          conv =>
-            String(conv.id) === idStr ||
-            String(conv.uuid || '') === idStr,
-        ) || null
+        state.conversations.find(conv => matchesConversationId(conv, idStr)) || null
       );
     },
     [state.conversations],
@@ -56,6 +57,11 @@ export function ConversationsProvider({ children }: { children: React.ReactNode 
       try {
         const requestedPage = Number(params?.page || 1);
         const shouldAppend = requestedPage > 1;
+        if (!shouldAppend) {
+          const listParams: ConversationListParams = { ...(params ?? {}) };
+          delete listParams.page;
+          currentQueryRef.current = { kind: 'list', params: listParams };
+        }
         const response = await chatService.getConversations(params);
 
         if (!response || !response.data) {
@@ -120,8 +126,31 @@ export function ConversationsProvider({ children }: { children: React.ReactNode 
       return;
     }
 
-    await loadConversations({ page: currentPage + 1 });
-  }, [state.conversationsPagination, state.conversationsLoading, loadConversations]);
+    const nextPage = currentPage + 1;
+    const query = currentQueryRef.current;
+
+    // Advanced-filter lists came from POST /conversations/filter; replay that
+    // same request for the next page (loadConversations only knows GET).
+    if (query.kind === 'filter') {
+      loadingRef.current = true;
+      dispatch({ type: 'SET_CONVERSATIONS_LOADING', payload: true });
+      try {
+        const response = await chatService.filterConversations({ ...query.request, page: nextPage });
+        const { conversations, pagination: nextPagination } = extractConversationsData(response);
+        dispatch({ type: 'APPEND_CONVERSATIONS', payload: { conversations, pagination: nextPagination } });
+      } catch (error) {
+        const errorMessage =
+          error instanceof Error ? error.message : t('contexts.conversations.errors.loadConversations');
+        dispatch({ type: 'SET_CONVERSATIONS_ERROR', payload: errorMessage });
+        dispatch({ type: 'SET_CONVERSATIONS_LOADING', payload: false });
+      } finally {
+        loadingRef.current = false;
+      }
+      return;
+    }
+
+    await loadConversations({ ...query.params, page: nextPage });
+  }, [state.conversationsPagination, state.conversationsLoading, loadConversations, t]);
 
   const loadSpecificConversation = useCallback(
     async (conversationId: string): Promise<Conversation | null> => {
@@ -190,7 +219,10 @@ export function ConversationsProvider({ children }: { children: React.ReactNode 
   );
 
   const setConversations = useCallback(
-    (conversations: Conversation[], pagination: PaginationMeta) => {
+    (conversations: Conversation[], pagination: PaginationMeta, query?: ConversationsQuery) => {
+      if (query) {
+        currentQueryRef.current = query;
+      }
       dispatch({ type: 'SET_CONVERSATIONS', payload: { conversations, pagination } });
     },
     [],
@@ -290,6 +322,8 @@ export function ConversationsProvider({ children }: { children: React.ReactNode 
           console.warn('updateConversationStatus: Invalid response', response);
         }
 
+        useUnansweredConversationsStore.getState().fetch();
+
         const statusName = t(`contexts.conversations.statusNames.${status}`);
 
         toast.success(t('contexts.conversations.success.statusChanged', { status: statusName }));
@@ -303,6 +337,43 @@ export function ConversationsProvider({ children }: { children: React.ReactNode 
       } catch (error) {
         console.error('Error updating conversation status:', error);
         toast.error(t('contexts.conversations.errors.updateStatus'), {
+          description:
+            error instanceof Error
+              ? error.message
+              : t('contexts.conversations.tryAgainDescription'),
+        });
+        throw error;
+      }
+    },
+    [t],
+  );
+
+  // EVO-1680 — mirror of updateConversationStatus but targets the dedicated
+  // return_to_bot endpoint which clears the assignee and persists a
+  // human_to_bot activity in addition to the pending transition.
+  const returnConversationToBot = useCallback(
+    async (conversationId: string, onFilterReload?: () => Promise<void>) => {
+      try {
+        const response = await chatService.returnConversationToBot(conversationId);
+
+        if (response && response.data && response.data.id) {
+          dispatch({ type: 'UPDATE_CONVERSATION', payload: response.data });
+        } else {
+          console.warn('returnConversationToBot: Invalid response', response);
+        }
+
+        useUnansweredConversationsStore.getState().fetch();
+
+        toast.success(t('contexts.conversations.success.returnedToBot'));
+
+        if (onFilterReload) {
+          await onFilterReload();
+        }
+
+        return response as unknown as Conversation;
+      } catch (error) {
+        console.error('Error returning conversation to bot:', error);
+        toast.error(t('contexts.conversations.errors.returnToBot'), {
           description:
             error instanceof Error
               ? error.message
@@ -435,7 +506,11 @@ export function ConversationsProvider({ children }: { children: React.ReactNode 
   );
 
   const archiveConversation = useCallback(
-    async (conversationId: string, onFilterReload?: () => Promise<void>) => {
+    async (
+      conversationId: string,
+      onFilterReload?: () => Promise<void>,
+      options?: { silent?: boolean },
+    ) => {
       try {
         const response = await chatService.archiveConversation(conversationId);
 
@@ -445,7 +520,9 @@ export function ConversationsProvider({ children }: { children: React.ReactNode 
           console.warn('archiveConversation: Invalid response', response);
         }
 
-        toast.success(t('contexts.conversations.success.archived'));
+        if (!options?.silent) {
+          toast.success(t('contexts.conversations.success.archived'));
+        }
 
         if (onFilterReload) {
           await onFilterReload();
@@ -454,19 +531,23 @@ export function ConversationsProvider({ children }: { children: React.ReactNode 
         return response as unknown as Conversation;
       } catch (error) {
         if (isActionNotSupported(error)) {
-          toast.error(t('contexts.conversations.errors.archiveNotSupported'), {
-            description: t('contexts.conversations.errors.archiveNotSupportedDescription'),
-          });
+          if (!options?.silent) {
+            toast.error(t('contexts.conversations.errors.archiveNotSupported'), {
+              description: t('contexts.conversations.errors.archiveNotSupportedDescription'),
+            });
+          }
           throw error;
         }
 
         console.error('Error archiving conversation:', error);
-        toast.error(t('contexts.conversations.errors.archiveConversation'), {
-          description:
-            error instanceof Error
-              ? error.message
-              : t('contexts.conversations.tryAgainDescription'),
-        });
+        if (!options?.silent) {
+          toast.error(t('contexts.conversations.errors.archiveConversation'), {
+            description:
+              error instanceof Error
+                ? error.message
+                : t('contexts.conversations.tryAgainDescription'),
+          });
+        }
         throw error;
       }
     },
@@ -474,7 +555,11 @@ export function ConversationsProvider({ children }: { children: React.ReactNode 
   );
 
   const unarchiveConversation = useCallback(
-    async (conversationId: string, onFilterReload?: () => Promise<void>) => {
+    async (
+      conversationId: string,
+      onFilterReload?: () => Promise<void>,
+      options?: { silent?: boolean },
+    ) => {
       try {
         const response = await chatService.unarchiveConversation(conversationId);
 
@@ -484,7 +569,9 @@ export function ConversationsProvider({ children }: { children: React.ReactNode 
           console.warn('unarchiveConversation: Invalid response', response);
         }
 
-        toast.success(t('contexts.conversations.success.unarchived'));
+        if (!options?.silent) {
+          toast.success(t('contexts.conversations.success.unarchived'));
+        }
 
         if (onFilterReload) {
           await onFilterReload();
@@ -493,19 +580,23 @@ export function ConversationsProvider({ children }: { children: React.ReactNode 
         return response as unknown as Conversation;
       } catch (error) {
         if (isActionNotSupported(error)) {
-          toast.error(t('contexts.conversations.errors.archiveNotSupported'), {
-            description: t('contexts.conversations.errors.archiveNotSupportedDescription'),
-          });
+          if (!options?.silent) {
+            toast.error(t('contexts.conversations.errors.archiveNotSupported'), {
+              description: t('contexts.conversations.errors.archiveNotSupportedDescription'),
+            });
+          }
           throw error;
         }
 
         console.error('Error unarchiving conversation:', error);
-        toast.error(t('contexts.conversations.errors.archiveConversation'), {
-          description:
-            error instanceof Error
-              ? error.message
-              : t('contexts.conversations.tryAgainDescription'),
-        });
+        if (!options?.silent) {
+          toast.error(t('contexts.conversations.errors.archiveConversation'), {
+            description:
+              error instanceof Error
+                ? error.message
+                : t('contexts.conversations.tryAgainDescription'),
+          });
+        }
         throw error;
       }
     },
@@ -556,12 +647,16 @@ export function ConversationsProvider({ children }: { children: React.ReactNode 
     }
   }, [state.conversations]);
 
-  const updateUnreadCount = useCallback((conversationId: string, count: number) => {
-    dispatch({
-      type: 'UPDATE_UNREAD_COUNT',
-      payload: { conversationId, count },
-    });
-  }, []);
+  const updateUnreadCount = useCallback(
+    (conversationId: string, count: number) => {
+      dispatch({
+        type: 'UPDATE_UNREAD_COUNT',
+        payload: { conversationId, count },
+      });
+      useUnansweredConversationsStore.getState().fetch();
+    },
+    [],
+  );
 
   const updateConversationLastActivity = useCallback(
     (conversationId: string, lastActivityAt: string) => {
@@ -578,6 +673,7 @@ export function ConversationsProvider({ children }: { children: React.ReactNode 
       type: 'INCREMENT_UNREAD_COUNT',
       payload: { conversationId },
     });
+    useUnansweredConversationsStore.getState().fetch();
   }, []);
 
   const addHiddenConversation = useCallback((conversation: Conversation) => {
@@ -590,7 +686,7 @@ export function ConversationsProvider({ children }: { children: React.ReactNode 
 
   // Context menu actions
   const deleteConversation = useCallback(
-    async (conversationId: string) => {
+    async (conversationId: string, options?: { silent?: boolean }) => {
       try {
         await conversationAPI.deleteConversation(conversationId);
 
@@ -602,15 +698,19 @@ export function ConversationsProvider({ children }: { children: React.ReactNode 
           dispatch({ type: 'SELECT_CONVERSATION', payload: null });
         }
 
-        toast.success(t('contexts.conversations.success.deleted'));
+        if (!options?.silent) {
+          toast.success(t('contexts.conversations.success.deleted'));
+        }
       } catch (error) {
         console.error('Error deleting conversation:', error);
-        toast.error(t('contexts.conversations.errors.deleteConversation'), {
-          description:
-            error instanceof Error
-              ? error.message
-              : t('contexts.conversations.tryAgainDescription'),
-        });
+        if (!options?.silent) {
+          toast.error(t('contexts.conversations.errors.deleteConversation'), {
+            description:
+              error instanceof Error
+                ? error.message
+                : t('contexts.conversations.tryAgainDescription'),
+          });
+        }
         throw error;
       }
     },
@@ -618,25 +718,29 @@ export function ConversationsProvider({ children }: { children: React.ReactNode 
   );
 
   const markAsRead = useCallback(
-    async (conversationId: string) => {
+    async (conversationId: string, options?: { silent?: boolean }) => {
       try {
         await conversationAPI.markAsRead(conversationId);
 
-        // Update local state - set unread count to 0
         dispatch({
           type: 'UPDATE_UNREAD_COUNT',
           payload: { conversationId, count: 0 },
         });
+        // No badge refetch: reading does not change waiting_since.
 
-        toast.success(t('contexts.conversations.success.markedAsRead'));
+        if (!options?.silent) {
+          toast.success(t('contexts.conversations.success.markedAsRead'));
+        }
       } catch (error) {
         console.error('Error marking conversation as read:', error);
-        toast.error(t('contexts.conversations.errors.markAsRead'), {
-          description:
-            error instanceof Error
-              ? error.message
-              : t('contexts.conversations.tryAgainDescription'),
-        });
+        if (!options?.silent) {
+          toast.error(t('contexts.conversations.errors.markAsRead'), {
+            description:
+              error instanceof Error
+                ? error.message
+                : t('contexts.conversations.tryAgainDescription'),
+          });
+        }
         throw error;
       }
     },
@@ -644,26 +748,30 @@ export function ConversationsProvider({ children }: { children: React.ReactNode 
   );
 
   const markAsUnread = useCallback(
-    async (conversationId: string) => {
+    async (conversationId: string, options?: { silent?: boolean }) => {
       try {
         await conversationAPI.markAsUnread(conversationId);
 
-        // Update local state - set unread count to 1 (or increment existing)
         const currentCount = state.unreadCounts[conversationId] || 0;
         dispatch({
           type: 'UPDATE_UNREAD_COUNT',
           payload: { conversationId, count: Math.max(1, currentCount) },
         });
+        // No badge refetch: unread and unanswered are distinct axes.
 
-        toast.success(t('contexts.conversations.success.markedAsUnread'));
+        if (!options?.silent) {
+          toast.success(t('contexts.conversations.success.markedAsUnread'));
+        }
       } catch (error) {
         console.error('Error marking conversation as unread:', error);
-        toast.error(t('contexts.conversations.errors.markAsUnread'), {
-          description:
-            error instanceof Error
-              ? error.message
-              : t('contexts.conversations.tryAgainDescription'),
-        });
+        if (!options?.silent) {
+          toast.error(t('contexts.conversations.errors.markAsUnread'), {
+            description:
+              error instanceof Error
+                ? error.message
+                : t('contexts.conversations.tryAgainDescription'),
+          });
+        }
         throw error;
       }
     },
@@ -684,6 +792,8 @@ export function ConversationsProvider({ children }: { children: React.ReactNode 
         } else {
           console.warn('Invalid updatedConversation', updatedConversation);
         }
+
+        useUnansweredConversationsStore.getState().fetch();
 
         toast.success(t('contexts.conversations.success.markedAsResolved'));
       } catch (error) {
@@ -741,6 +851,10 @@ export function ConversationsProvider({ children }: { children: React.ReactNode 
           type: 'UPDATE_CONVERSATION',
           payload: updatedConversation as unknown as Conversation,
         });
+
+        // Assignment moves a conversation in and out of "mine".
+        useUnansweredConversationsStore.getState().fetch();
+
         toast.success(
           assigneeId
             ? t('contexts.conversations.success.agentAssigned')
@@ -864,6 +978,7 @@ export function ConversationsProvider({ children }: { children: React.ReactNode 
     loadSpecificConversation,
     selectConversation,
     updateConversationStatus,
+    returnConversationToBot,
     updateConversationPriority,
     pinConversation,
     unpinConversation,

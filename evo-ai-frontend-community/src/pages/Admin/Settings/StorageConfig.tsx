@@ -22,6 +22,7 @@ import { useLanguage } from '@/hooks/useLanguage';
 import { adminConfigService } from '@/services/admin/adminConfigService';
 import { extractError } from '@/utils/apiHelpers';
 import type { AdminConfigData } from '@/types/admin/adminConfig';
+import { ClearConfigButton } from '@/components/admin/ClearConfigButton';
 
 // --- Types ---
 
@@ -163,7 +164,7 @@ export default function StorageConfig() {
       const type = (data.ACTIVE_STORAGE_SERVICE as StorageServiceType) || 'local';
       updateSecretStatus(data);
       reset(buildFormValues(data, type));
-    } catch (error) {
+    } catch {
       toast.error(t('storage.messages.loadError'));
     } finally {
       setLoading(false);
@@ -328,11 +329,23 @@ export default function StorageConfig() {
                   </Select>
                 )}
               />
+              {storageService !== 'local' && (
+                <p className="text-xs text-sidebar-foreground/60">
+                  {storageService === 'amazon'
+                    ? t('storage.provider.amazonHelp')
+                    : t('storage.provider.s3CompatibleHelp')}
+                </p>
+              )}
             </div>
 
             {/* Cloud storage fields */}
             {isCloud && (
               <>
+                <div role="alert" className="rounded-md border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
+                  <strong className="font-semibold">{t('storage.cloudWarning.title')}</strong>{' '}
+                  {t('storage.cloudWarning.body')}
+                </div>
+
                 <div className="space-y-2">
                   <Label htmlFor="STORAGE_BUCKET_NAME">{t('storage.fields.bucketName')}</Label>
                   <Input
@@ -379,6 +392,7 @@ export default function StorageConfig() {
                       placeholder={t('storage.placeholders.endpoint')}
                       {...register('STORAGE_ENDPOINT' as StorageFieldKey)}
                     />
+                    <p className="text-xs text-sidebar-foreground/60">{t('storage.fields.endpointHelp')}</p>
                     {storageService === 's3_compatible' && (errors as Record<string, { message?: string }>).STORAGE_ENDPOINT && (
                       <p className="text-xs text-destructive">{(errors as Record<string, { message?: string }>).STORAGE_ENDPOINT?.message}</p>
                     )}
@@ -399,6 +413,7 @@ export default function StorageConfig() {
                   {testing ? t('storage.testing') : t('storage.testConnection')}
                 </Button>
               )}
+              <ClearConfigButton configType="storage" configLabel="Storage" onCleared={() => { reset(); loadConfig(); }} />
             </div>
           </form>
         </CardContent>

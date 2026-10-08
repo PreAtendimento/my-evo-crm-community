@@ -1,227 +1,66 @@
-import { useState, useCallback, useRef } from 'react';
-import { toast } from 'sonner';
-import { contactEventsService } from '@/services/contacts/contactEventsService';
-import type {
-  ContactEvent,
-  ContactEventsQueryParams,
-  ContactEventStats,
-} from '@/types/notifications';
+import { useEffect } from 'react';
+import { useContactEventsStore } from '@/store/contactEventsStore';
+import type { ContactEvent, ContactEventsQuery } from '@/types/contacts';
 
-interface UseContactEventsState {
+export interface UseContactEventsReturn {
   events: ContactEvent[];
-  stats: ContactEventStats | null;
-  loading: {
-    events: boolean;
-    stats: boolean;
-    recent: boolean;
-  };
-  pagination: {
-    currentPage: number;
-    limit: number;
-    totalItems: number;
-    totalPages: number;
-    hasPreviousPage: boolean;
-    hasNextPage: boolean;
-  };
-  metadata: {
-    source: 'postgres' | 'clickhouse' | 'hybrid';
-    queryTime: number;
-    cachedUntil?: Date;
-  } | null;
+  isLoading: boolean;
+  isLoadingMore: boolean;
+  error: Error | null;
+  errorCode: number | null;
+  degraded: boolean;
+  hasMore: boolean;
+  softCapped: boolean;
+  filters: ContactEventsQuery;
+  setFilters: (next: ContactEventsQuery) => Promise<void>;
+  loadMore: () => Promise<void>;
+  refetch: () => Promise<void>;
 }
 
-const INITIAL_STATE: UseContactEventsState = {
-  events: [],
-  stats: null,
-  loading: {
-    events: false,
-    stats: false,
-    recent: false,
-  },
-  pagination: {
-    currentPage: 1,
-    limit: 20,
-    totalItems: 0,
-    totalPages: 1,
-    hasPreviousPage: false,
-    hasNextPage: false,
-  },
-  metadata: null,
-};
+// Subscribes to the contactEvents Zustand slice. The slice survives unmount
+// (AC7: switching CRM tabs and coming back must not re-fetch), so the hook
+// only triggers a first-page fetch when the slice has never been populated
+// for the given contactId.
+export function useContactEvents(contactId: string): UseContactEventsReturn {
+  const sliceContactId = useContactEventsStore((s) => s.contactId);
+  const events = useContactEventsStore((s) => s.events);
+  const filters = useContactEventsStore((s) => s.filters);
+  const isLoading = useContactEventsStore((s) => s.isLoading);
+  const isLoadingMore = useContactEventsStore((s) => s.isLoadingMore);
+  const error = useContactEventsStore((s) => s.error);
+  const errorCode = useContactEventsStore((s) => s.errorCode);
+  const degraded = useContactEventsStore((s) => s.degraded);
+  const hasMore = useContactEventsStore((s) => s.hasMore);
+  const softCapped = useContactEventsStore((s) => s.softCapped);
+  const fetchFirstPage = useContactEventsStore((s) => s.fetchFirstPage);
+  const loadMore = useContactEventsStore((s) => s.loadMore);
+  const refetch = useContactEventsStore((s) => s.refetch);
+  const setFilters = useContactEventsStore((s) => s.setFilters);
+  const resetIfDifferentContact = useContactEventsStore((s) => s.resetIfDifferentContact);
 
-export function useContactEvents() {
-  const [state, setState] = useState<UseContactEventsState>(INITIAL_STATE);
-  const hasLoaded = useRef(false);
-
-  // Load contact events with pagination and filters
-  const loadContactEvents = useCallback(
-    async (contactId: string, params: ContactEventsQueryParams = {}) => {
-      if (!contactId) {
-        console.warn('Missing contactId for loading events');
-        return null;
-      }
-
-      setState(prev => ({ ...prev, loading: { ...prev.loading, events: true } }));
-
-      try {
-        const response = await contactEventsService.getContactEvents(contactId, {
-          page: 1,
-          limit: 20,
-          ...params,
-        });
-
-        setState(prev => ({
-          ...prev,
-          events: response.data,
-          pagination: {
-            currentPage: response.pagination.page,
-            limit: response.pagination.limit,
-            totalItems: response.pagination.total,
-            totalPages: response.pagination.totalPages,
-            hasPreviousPage: response.pagination.hasPrev,
-            hasNextPage: response.pagination.hasNext,
-          },
-          metadata: {
-            source: response.metadata.source,
-            queryTime: response.metadata.queryTime,
-            cachedUntil: response.metadata.cachedUntil
-              ? new Date(response.metadata.cachedUntil)
-              : undefined,
-          },
-          loading: { ...prev.loading, events: false },
-        }));
-
-        return response;
-      } catch (error) {
-        console.error('❌ ContactEvents: Error loading events:', error);
-        toast.error('Erro ao carregar eventos do contato');
-        setState(prev => ({ ...prev, loading: { ...prev.loading, events: false } }));
-        return null;
-      }
-    },
-    [],
-  );
-
-  // Load contact event statistics
-  const loadContactEventStats = useCallback(async (contactId: string, days: number = 30) => {
-    if (!contactId) {
-      console.warn('Missing contactId for loading stats');
-      return null;
+  useEffect(() => {
+    resetIfDifferentContact(contactId);
+    // Only fetch when there's nothing cached for this contact. If the user
+    // re-opens the events tab for the same contact, the slice already has
+    // events and we skip the network call (AC7).
+    const state = useContactEventsStore.getState();
+    if (state.contactId === contactId && !state.hasFetched && !state.isLoading) {
+      fetchFirstPage(contactId);
     }
-
-    setState(prev => ({ ...prev, loading: { ...prev.loading, stats: true } }));
-
-    try {
-      const response = await contactEventsService.getContactEventStats(contactId, days);
-
-      // A API retorna os dados diretamente, não dentro de uma propriedade 'stats'
-      const statsData = response.data || response;
-
-      setState(prev => ({
-        ...prev,
-        stats: statsData,
-        loading: { ...prev.loading, stats: false },
-      }));
-
-      return response;
-    } catch (error) {
-      console.error('❌ ContactEvents: Error loading stats:', error);
-      toast.error('Erro ao carregar estatísticas de eventos');
-      setState(prev => ({ ...prev, loading: { ...prev.loading, stats: false } }));
-      return null;
-    }
-  }, []);
-
-  // Load recent events for dashboard
-  const loadRecentEvents = useCallback(
-    async (
-      params: {
-        limit?: number;
-        eventTypes?: string[];
-        contactIds?: string[];
-      } = {},
-    ) => {
-      setState(prev => ({ ...prev, loading: { ...prev.loading, recent: true } }));
-
-      try {
-        const response = await contactEventsService.getRecentEvents(params);
-
-        setState(prev => ({
-          ...prev,
-          events: response.data,
-          pagination: {
-            currentPage: response.pagination.page,
-            limit: response.pagination.limit,
-            totalItems: response.pagination.total,
-            totalPages: response.pagination.totalPages,
-            hasPreviousPage: response.pagination.hasPrev,
-            hasNextPage: response.pagination.hasNext,
-          },
-          loading: { ...prev.loading, recent: false },
-        }));
-
-        return response;
-      } catch (error) {
-        console.error('❌ ContactEvents: Error loading recent events:', error);
-        toast.error('Erro ao carregar eventos recentes');
-        setState(prev => ({ ...prev, loading: { ...prev.loading, recent: false } }));
-        return null;
-      }
-    },
-    [],
-  );
-
-  // Handle pagination
-  const handlePageChange = useCallback(
-    async (contactId: string, page: number, params: ContactEventsQueryParams = {}) => {
-      await loadContactEvents(contactId, { ...params, page });
-    },
-    [loadContactEvents],
-  );
-
-  // Handle per page change
-  const handlePerPageChange = useCallback(
-    async (contactId: string, limit: number, params: ContactEventsQueryParams = {}) => {
-      await loadContactEvents(contactId, { ...params, limit, page: 1 });
-    },
-    [loadContactEvents],
-  );
-
-  // Clear events
-  const clearEvents = useCallback(() => {
-    setState(INITIAL_STATE);
-    hasLoaded.current = false;
-  }, []);
-
-  // Refresh events
-  const refreshEvents = useCallback(
-    async (contactId: string, params: ContactEventsQueryParams = {}) => {
-      hasLoaded.current = false;
-      await loadContactEvents(contactId, params);
-    },
-    [loadContactEvents],
-  );
+  }, [contactId, fetchFirstPage, resetIfDifferentContact]);
 
   return {
-    // State
-    events: state.events,
-    stats: state.stats,
-    loading: state.loading,
-    pagination: state.pagination,
-    metadata: state.metadata,
-    isEmpty: !state.loading.events && state.events.length === 0,
-
-    // Actions
-    loadContactEvents,
-    loadContactEventStats,
-    loadRecentEvents,
-    handlePageChange,
-    handlePerPageChange,
-    clearEvents,
-    refreshEvents,
-
-    // Computed
-    hasEvents: state.events.length > 0,
-    isLoading: state.loading.events || state.loading.stats || state.loading.recent,
+    events: sliceContactId === contactId ? events : [],
+    isLoading: sliceContactId === contactId ? isLoading : false,
+    isLoadingMore: sliceContactId === contactId ? isLoadingMore : false,
+    error: sliceContactId === contactId ? error : null,
+    errorCode: sliceContactId === contactId ? errorCode : null,
+    degraded: sliceContactId === contactId ? degraded : false,
+    hasMore: sliceContactId === contactId ? hasMore : false,
+    softCapped: sliceContactId === contactId ? softCapped : false,
+    filters: sliceContactId === contactId ? filters : {},
+    setFilters,
+    loadMore,
+    refetch,
   };
 }

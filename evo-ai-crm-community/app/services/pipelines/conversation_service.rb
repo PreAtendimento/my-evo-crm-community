@@ -46,6 +46,24 @@ class Pipelines::ConversationService
     false
   end
 
+  # Relocates an existing pipeline_item to a stage in a DIFFERENT pipeline,
+  # in place (preserving the row + history), so the conversation leaves the
+  # previous pipeline. Mirrors Pipelines::StageAutomationService#move_to_pipeline
+  # for parity; same-pipeline moves use #move_to_stage.
+  def move_to_pipeline_stage(pipeline_item, target_stage)
+    return false if pipeline_item.pipeline_id == target_stage.pipeline_id
+
+    old_stage = pipeline_item.pipeline_stage
+    pipeline_item.update!(pipeline_id: target_stage.pipeline_id, pipeline_stage_id: target_stage.id)
+    record_cross_pipeline_movement(pipeline_item, old_stage, target_stage)
+    notify_conversation_moved(pipeline_item, old_stage, target_stage)
+    execute_stage_automation(pipeline_item, target_stage)
+    true
+  rescue StandardError => e
+    Rails.logger.error "Failed to move conversation across pipelines: #{e.message}"
+    false
+  end
+
   def bulk_move_conversations(conversation_ids, new_stage, notes: nil)
     results = { success: 0, failed: 0, errors: [] }
 
@@ -86,11 +104,13 @@ class Pipelines::ConversationService
   def prepare_conversation_for_pipeline(conversation)
     conversation.reload
 
-    existing_pipeline_items = conversation.pipeline_items.reload
-    return unless existing_pipeline_items.exists?
+    # Only remove active items from OTHER pipelines (not this one)
+    # This preserves completed journey history in the current pipeline
+    other_pipeline_items = conversation.pipeline_items.where.not(pipeline_id: @pipeline.id)
+    return unless other_pipeline_items.exists?
 
-    Rails.logger.info "Pipeline Service: Conversation #{conversation.id} already has pipeline conversations, destroying them first"
-    existing_pipeline_items.destroy_all
+    Rails.logger.info "Pipeline Service: Removing conversation #{conversation.id} from #{other_pipeline_items.count} other pipeline(s)"
+    other_pipeline_items.destroy_all
     conversation.reload
   end
 
@@ -131,6 +151,18 @@ class Pipelines::ConversationService
   def add_notes_to_movement(pipeline_item, notes)
     latest_movement = pipeline_item.stage_movements.last
     latest_movement.update!(notes: notes)
+  end
+
+  def record_cross_pipeline_movement(pipeline_item, old_stage, target_stage)
+    pipeline_item.stage_movements.create!(
+      from_stage: old_stage,
+      to_stage: target_stage,
+      moved_by: @user,
+      movement_type: 'cross_pipeline',
+      notes: "Moved from pipeline '#{old_stage&.pipeline&.name}' to '#{target_stage.pipeline.name}'"
+    )
+  rescue StandardError => e
+    Rails.logger.error "Failed to record cross-pipeline movement: #{e.message}"
   end
 
   def execute_stage_automation(pipeline_item, stage)

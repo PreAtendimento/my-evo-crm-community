@@ -38,6 +38,23 @@ module Whatsapp::EvolutionHandlers::MessagesUpdate
     end
   end
 
+  # EVO-1890: contact revokes (delete-for-everyone) arrive as a messages.delete
+  # event ({ ...key, status: 'DELETED' }). Mark the original as revoked_by_contact
+  # (content kept, shown with a notice) instead of letting it pass unhandled.
+  def process_messages_delete
+    data = processed_params[:data]
+    return if data.blank?
+
+    entries = data.is_a?(Array) ? data : [data]
+    entries.each do |entry|
+      source_id = entry[:id] || entry.dig(:key, :id)
+      next if source_id.blank?
+
+      Rails.logger.info "Evolution API: messages.delete for #{source_id} — marking revoked_by_contact"
+      mark_message_revoked_by_source_id(source_id)
+    end
+  end
+
   def handle_update
     unless find_message_by_source_id(raw_message_id)
       Rails.logger.warn "Evolution API: Message not found for update: #{raw_message_id}"
@@ -65,8 +82,7 @@ module Whatsapp::EvolutionHandlers::MessagesUpdate
 
     update_last_seen_at if incoming? && status == 'read'
 
-    if status_transition_allowed?(status)
-      @message.update!(status: status)
+    if Messages::StatusUpdateService.new(@message, status).perform
       refresh_conversation_activity
       Rails.logger.debug 'Evolution API: Message status updated successfully'
     else
@@ -131,24 +147,6 @@ module Whatsapp::EvolutionHandlers::MessagesUpdate
       msg.dig(:imageMessage, :caption) ||
       msg.dig(:videoMessage, :caption) ||
       msg.dig(:documentMessage, :caption)
-  end
-
-  def status_transition_allowed?(new_status)
-    # Define allowed status transitions to prevent invalid updates
-    current_status = @message.status
-
-    case current_status
-    when 'sent'
-      %w[delivered read failed].include?(new_status)
-    when 'delivered'
-      %w[read].include?(new_status)
-    when 'read'
-      false # Read is final status
-    when 'failed'
-      false # Failed is final status
-    else
-      true # Allow any transition from unknown/nil status
-    end
   end
 
   def update_last_seen_at

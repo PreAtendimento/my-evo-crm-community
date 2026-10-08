@@ -1,58 +1,56 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
 import React, { useState } from 'react';
 
 import { useLanguage } from '@/hooks/useLanguage';
 import { useConversations } from '@/hooks/chat/useConversations';
+import { useContactPiiMasking } from '@/hooks/useContactPiiMasking';
 
 import { contactsService } from '@/services/contacts/contactsService';
+import { unixTimestampToIso } from '@/utils/chat/contactTimestamp';
 
 import { Button } from '@evoapi/design-system/button';
-import { Card, CardHeader, CardTitle, CardContent, CardFooter } from '@evoapi/design-system/card';
 import {
   User,
   Phone,
   Mail,
   // MapPin,
-  Settings,
-  Info,
   Clock,
   Calendar,
   Activity,
   Copy,
   Hash,
   Edit,
+  Lock,
+  Tag,
 } from 'lucide-react';
 
 import { toast } from 'sonner';
 
 import ContactModal from '@/components/contacts/ContactModal';
+import EditableContactCustomAttributes from './EditableContactCustomAttributes';
 
 import { Contact } from '@/types/chat/api';
 import { Contact as FullContact, ContactFormData } from '@/types/contacts';
 
 interface ContactDetailsProps {
   contact: Contact | null;
+  onContactAttributeUpdate?: () => void;
 }
 
-const ContactDetails: React.FC<ContactDetailsProps> = ({ contact }) => {
+const ContactDetails: React.FC<ContactDetailsProps> = ({ contact, onContactAttributeUpdate }) => {
   const { t } = useLanguage('chat');
 
   const { updateContactInConversations } = useConversations();
+  const { shouldMask, maskPhone, maskEmail, maskIdentifier } = useContactPiiMasking();
 
   const [contactModalOpen, setContactModalOpen] = useState(false);
   const [editingContact, setEditingContact] = useState<FullContact | null>(null);
 
-  const formatCustomAttributeKey = (key: string): string => {
-    return key
-      .split('_')
-      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-      .join(' ');
-  };
-
-  const formatDate = (dateString?: string): string => {
+  const formatDate = (dateString?: string | number): string => {
     if (!dateString) return t('contactSidebar.contactDetails.notInformed');
-
-    const date = new Date(dateString);
+    const iso = unixTimestampToIso(dateString) ?? (typeof dateString === 'string' ? dateString : undefined);
+    if (!iso) return t('contactSidebar.contactDetails.notInformed');
+    const date = new Date(iso);
+    if (isNaN(date.getTime())) return t('contactSidebar.contactDetails.notInformed');
     return date.toLocaleDateString('pt-BR', {
       day: '2-digit',
       month: '2-digit',
@@ -113,19 +111,23 @@ const ContactDetails: React.FC<ContactDetailsProps> = ({ contact }) => {
     setContactModalOpen(open);
   };
 
-  if (!contact) return null;
+  if (!contact) {
+    return (
+      <div className="text-xs text-muted-foreground text-center py-4">
+        {t('contactSidebar.contactDetails.noContact')}
+      </div>
+    );
+  }
 
   return (
-    <div className="space-y-3">
+    <div>
       {/* Informações Básicas */}
-      <Card className="border-0 shadow-none bg-muted/20">
-        <CardHeader className="pb-2">
-          <CardTitle className="text-sm flex items-center gap-2">
-            <User className="h-4 w-4" />
-            {t('contactSidebar.contactDetails.sections.basicInfo')}
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="pt-0 space-y-2">
+      <div className="space-y-2">
+        <h4 className="text-sm font-semibold flex items-center gap-2">
+          <User className="h-4 w-4" />
+          {t('contactSidebar.contactDetails.sections.basicInfo')}
+        </h4>
+        <div className="space-y-2">
           {contact?.name && (
             <InfoField
               label={t('contactSidebar.contactDetails.fields.name')}
@@ -136,25 +138,31 @@ const ContactDetails: React.FC<ContactDetailsProps> = ({ contact }) => {
           {contact?.phone_number && (
             <InfoField
               label={t('contactSidebar.contactDetails.fields.phone')}
-              value={contact.phone_number}
+              value={maskPhone(contact.phone_number)}
+              copyValue={shouldMask ? maskPhone(contact.phone_number) : contact.phone_number}
               icon={<Phone className="h-4 w-4" />}
               copyable
+              isMasked={shouldMask}
             />
           )}
           {contact?.identifier && (
             <InfoField
               label={t('contactSidebar.contactDetails.fields.identifier')}
-              value={contact.identifier}
+              value={maskIdentifier(contact.identifier)}
+              copyValue={shouldMask ? maskIdentifier(contact.identifier) : contact.identifier}
               icon={<Hash className="h-4 w-4" />}
               copyable
+              isMasked={shouldMask}
             />
           )}
           {contact?.email && (
             <InfoField
               label={t('contactSidebar.contactDetails.fields.email')}
-              value={contact.email}
+              value={maskEmail(contact.email)}
+              copyValue={shouldMask ? maskEmail(contact.email) : contact.email}
               icon={<Mail className="h-4 w-4" />}
               copyable
+              isMasked={shouldMask}
             />
           )}
           {/* {contact?.location && (
@@ -164,110 +172,20 @@ const ContactDetails: React.FC<ContactDetailsProps> = ({ contact }) => {
               icon={<MapPin className="h-4 w-4" />}
             />
           )} */}
-        </CardContent>
-        <CardFooter>
-          <Button variant="outline" size="sm" onClick={handleEditContact}>
-            <Edit className="h-4 w-4" />
-            {t('contactSidebar.contactDetails.actions.edit')}
-          </Button>
-        </CardFooter>
-      </Card>
+        </div>
+        <Button variant="outline" size="sm" onClick={handleEditContact}>
+          <Edit className="h-4 w-4" />
+          {t('contactSidebar.contactDetails.actions.edit')}
+        </Button>
+      </div>
 
-      {/* Custom Attributes */}
-      {contact?.custom_attributes &&
-        Object.keys(contact.custom_attributes).length > 0 &&
-        (() => {
-          // Filtrar atributos com valores válidos
-          const validAttributes = Object.entries(contact.custom_attributes).filter(([_, value]) => {
-            if (!value) return false;
-            const stringValue = String(value);
-            // Ignorar valores vazios, null, undefined, ou "[object Object]"
-            return (
-              stringValue &&
-              stringValue.trim() !== '' &&
-              stringValue !== 'null' &&
-              stringValue !== 'undefined' &&
-              stringValue !== '[object Object]' &&
-              stringValue.toLowerCase() !== 'not informed'
-            );
-          });
-
-          if (validAttributes.length === 0) return null;
-
-          return (
-            <Card className="border-0 shadow-none bg-muted/20">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm flex items-center gap-2">
-                  <Settings className="h-4 w-4" />
-                  {t('contactSidebar.contactDetails.sections.customAttributes')}
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="pt-0 space-y-2">
-                {validAttributes.map(([key, value]) => (
-                  <InfoField
-                    key={key}
-                    label={formatCustomAttributeKey(key)}
-                    value={String(value)}
-                  />
-                ))}
-              </CardContent>
-            </Card>
-          );
-        })()}
-
-      {/* Additional Attributes */}
-      {contact?.additional_attributes &&
-        Object.keys(contact.additional_attributes).length > 0 &&
-        (() => {
-          // Filtrar atributos com valores válidos
-          const validAttributes = Object.entries(contact.additional_attributes).filter(
-            ([_, value]) => {
-              if (!value) return false;
-              const stringValue = String(value);
-              // Ignorar valores vazios, null, undefined, ou "[object Object]"
-              return (
-                stringValue &&
-                stringValue.trim() !== '' &&
-                stringValue !== 'null' &&
-                stringValue !== 'undefined' &&
-                stringValue !== '[object Object]' &&
-                stringValue.toLowerCase() !== 'not informed'
-              );
-            },
-          );
-
-          if (validAttributes.length === 0) return null;
-
-          return (
-            <Card className="border-0 shadow-none bg-muted/20">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm flex items-center gap-2">
-                  <Info className="h-4 w-4" />
-                  {t('contactSidebar.contactDetails.sections.additionalInfo')}
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="pt-0 space-y-2">
-                {validAttributes.map(([key, value]) => (
-                  <InfoField
-                    key={key}
-                    label={formatCustomAttributeKey(key)}
-                    value={String(value)}
-                  />
-                ))}
-              </CardContent>
-            </Card>
-          );
-        })()}
-
-      {/* Timestamps */}
-      <Card className="border-0 shadow-none bg-muted/20">
-        <CardHeader className="pb-2">
-          <CardTitle className="text-sm flex items-center gap-2">
-            <Clock className="h-4 w-4" />
-            {t('contactSidebar.contactDetails.sections.history')}
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="pt-0 space-y-2">
+      {/* Histórico */}
+      <div className="space-y-2 pt-3 mt-3 border-t border-border">
+        <h4 className="text-sm font-semibold flex items-center gap-2">
+          <Clock className="h-4 w-4" />
+          {t('contactSidebar.contactDetails.sections.history')}
+        </h4>
+        <div className="space-y-2">
           <InfoField
             label={t('contactSidebar.contactDetails.fields.createdAt')}
             value={formatDate(contact?.created_at)}
@@ -278,8 +196,20 @@ const ContactDetails: React.FC<ContactDetailsProps> = ({ contact }) => {
             value={formatDate(contact?.last_activity_at)}
             icon={<Activity className="h-4 w-4" />}
           />
-        </CardContent>
-      </Card>
+        </div>
+      </div>
+
+      {/* Atributos do Contato */}
+      <div className="space-y-2 pt-3 mt-3 border-t border-border">
+        <h4 className="text-sm font-semibold flex items-center gap-2">
+          <Tag className="h-4 w-4" />
+          {t('contactSidebar.sections.contactAttributes.title')}
+        </h4>
+        <EditableContactCustomAttributes
+          contact={contact}
+          onContactUpdate={onContactAttributeUpdate}
+        />
+      </div>
 
       <ContactModal
         open={contactModalOpen}
@@ -299,17 +229,39 @@ interface InfoFieldProps {
   value?: string | null;
   icon?: React.ReactNode;
   copyable?: boolean;
+  // Optional override for what `handleCopy` writes to the clipboard. Use this
+  // when `value` is a presentation-only string (e.g. a formatted phone) and
+  // the unformatted raw should be copied so integrations like `wa.me/<digits>`
+  // keep working.
+  copyValue?: string | null;
+  isMasked?: boolean;
 }
 
-const InfoField: React.FC<InfoFieldProps> = ({ label, value, icon, copyable = false }) => {
+const InfoField: React.FC<InfoFieldProps> = ({
+  label,
+  value,
+  icon,
+  copyable = false,
+  copyValue,
+  isMasked = false,
+}) => {
   const { t } = useLanguage('chat');
 
   const handleCopy = () => {
-    if (value) {
-      navigator.clipboard.writeText(value);
-      toast.success(t('contactSidebar.contactDetails.copiedToClipboard'));
+    const target = copyValue ?? value;
+    if (target) {
+      navigator.clipboard.writeText(target);
+      toast.success(
+        isMasked
+          ? t('contactSidebar.contactDetails.maskedValueCopied')
+          : t('contactSidebar.contactDetails.copiedToClipboard')
+      );
     }
   };
+
+  const protectedTitle = isMasked
+    ? t('contactSidebar.contactDetails.dataProtectedTooltip')
+    : undefined;
 
   return (
     <div className="flex items-center justify-between py-2 border-b border-border/50">
@@ -319,7 +271,10 @@ const InfoField: React.FC<InfoFieldProps> = ({ label, value, icon, copyable = fa
       </div>
 
       <div className="flex items-center gap-2">
-        <span className="text-sm font-medium truncate max-w-48">
+        {isMasked && value && (
+          <Lock className="h-3 w-3 text-muted-foreground" aria-label={protectedTitle} />
+        )}
+        <span className="text-sm font-medium truncate max-w-48" title={protectedTitle}>
           {value || t('contactSidebar.contactDetails.notInformed')}
         </span>
 
